@@ -9,7 +9,7 @@ NUM_CLASSES = 7
 
 SAVE_PRED_EVERY = 2000
 
-SNAPSHOT_DIR = './log/cbst/2urban'
+SNAPSHOT_DIR = './log/gast/2urban'
 
 #Hyper Paramters
 WEIGHT_DECAY = 0.0005
@@ -19,6 +19,7 @@ NUM_STEPS_STOP = 10000  # Use damping instead of early stopping
 PREHEAT_STEPS = int(NUM_STEPS / 20)
 POWER = 0.9
 EVAL_EVERY=2000
+# EVAL_EVERY=200
 
 
 DS_RATE = 4
@@ -28,6 +29,7 @@ MINE_PORT = 1e-3
 RARE_CLS_NUM = 3
 RM_PROB = True
 WARMUP_STEP = 4000
+# WARMUP_STEP = 0
 GENERATE_PSEDO_EVERY=1000
 TGT_PORTION = 5e-1
 TGT_PORTION_STEP = 0.

@@ -175,3 +175,23 @@ class Deeplabv2(er.ERModule):
         ))
 
 
+if __name__ == '__main__':
+    model = Deeplabv2(dict(
+        backbone=dict(
+            resnet_type='resnet50',
+            output_stride=16,
+            pretrained=True,
+        ),
+        multi_layer=False,
+        cascade=False,
+        use_ppm=True,
+        ppm=dict(
+            num_classes=7,
+            use_aux=False,
+        ),
+        inchannels=2048,
+        num_classes=7
+    )).cuda()
+    x_i = torch.randn([8, 3, 512, 512]).cuda()
+    rs = model(x_i)
+    pass

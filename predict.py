@@ -1,19 +1,23 @@
+import os
+import warnings
+
 from data.loveda import LoveDALoader
 from utils.tools import *
 from skimage.io import imsave
-import os
+from module.Encoder import Deeplabv2
+from argparse import ArgumentParser
 
 
 def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test'):
     os.makedirs(save_dir, exist_ok=True)
     seed_torch(2333)
     model_state_dict = torch.load(ckpt_path)
-    model.load_state_dict(model_state_dict,  strict=True)
+    model.load_state_dict(model_state_dict, strict=True)
 
-    count_model_parameters(model)
+    count_model_parameters(model, get_console_file_logger(name='CBST', logdir='log/infer'))
     model.eval()
-    print(cfg.EVAL_DATA_CONFIG)
-    eval_dataloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
+    print(cfg.TEST_DATA_CONFIG)
+    eval_dataloader = LoveDALoader(cfg.TEST_DATA_CONFIG)
 
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
@@ -25,11 +29,18 @@ def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test'):
 
     torch.cuda.empty_cache()
 
-
+# python predict.py st.cbst.2urban log/cbst/2urban/URBAN10000.pth submit_test/cbst/2urban
+# python predict.py st.cbst.2rural log/cbst/2rural/RURAL10000.pth submit_test/cbst/2rural
 if __name__ == '__main__':
-    ckpt_path = './log/CBST_2Urban.pth'
-    from module.Encoder import Deeplabv2
-    cfg = import_config('st.cbst.2urban')
+    warnings.filterwarnings('ignore')
+
+    parser = ArgumentParser(description='Run predict methods.')
+    parser.add_argument('config_path', type=str, help='config path')
+    parser.add_argument('ckpt_path', type=str, help='ckpt path')
+    parser.add_argument('save_dir', type=str, help='save dir path')
+    args = parser.parse_args()
+
+    cfg = import_config(args.config_path)
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',
@@ -46,4 +57,4 @@ if __name__ == '__main__':
         inchannels=2048,
         num_classes=cfg.NUM_CLASSES
     )).cuda()
-    predict_test(model, cfg, ckpt_path)
+    predict_test(model, cfg, args.ckpt_path, save_dir=args.save_dir)

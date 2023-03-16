@@ -30,6 +30,7 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 
 parser.add_argument('--config_path', type=str, help='config path')
+parser.add_argument('--align-class', type=int, default=4500, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 
@@ -52,7 +53,7 @@ def main():
             output_stride=16,
             pretrained=True,
         ),
-        multi_layer=False,
+        multi_layer=True,
         cascade=False,
         use_ppm=True,
         ppm=dict(
@@ -62,7 +63,7 @@ def main():
         inchannels=2048,
         num_classes=7
     )).cuda()
-    aligner = Aligner(feat_channels=64, class_num=7, ignore_label=255)
+    aligner = Aligner(feat_channels=2048, class_num=7, ignore_label=255)
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
     evalloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
@@ -77,10 +78,10 @@ def main():
     # mix_trainloader = None
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
-        if i_iter < cfg.WARMUP_STEP:
+        lr = adjust_learning_rate(optimizer, i_iter, cfg)
+        if i_iter < 5:#cfg.WARMUP_STEP:
             # Train with Source
             optimizer.zero_grad()
-            lr = adjust_learning_rate(optimizer, i_iter, cfg)
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
             pred_source = model(images_s.cuda())
@@ -91,6 +92,8 @@ def main():
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)
             optimizer.step()
+            log_text = f'Mix iter={i_iter}, lr={lr:.3f}, loss_seg={loss:.3f}, ' \
+                       f'loss_domain={0:.3f}, loss_class={0:.3f}, loss={loss:.3f}'
         else:
             if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
                 logger.info('###### Start generate pesudo dataset in round {}! ######'.format(i_iter))
@@ -126,38 +129,37 @@ def main():
             #     targetloader = LoveDALoader(target_config)
             #     targetloader_iter = Iterator(targetloader)
 
+            # train model using both domains
             model.train()
             lr = adjust_learning_rate(optimizer, i_iter, cfg)
+
             batch = trainloader_iter.next()
-
             images_s, labels_s = batch[0]
-            logits_s, feat_x16_s = model(images_s.cuda())
-            # pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
-
+            logits_s1, logits_s2, feat_x16_s = model(images_s.cuda())
             batch = targetloader_iter.next()
             images_t, labels_t = batch[0]
-            logits_t, feat_x16_t = model(images_t.cuda())
-            # pred_target = pred_target[0] if isinstance(pred_target, tuple) else pred_target
-            loss_source = loss_calc(logits_s, labels_s['cls'].cuda())
-            loss_target = loss_calc(logits_t, labels_t['cls'].cuda())
+            logits_t1, logits_t2, feat_x16_t = model(images_t.cuda())
 
-            loss_domains = aligner.align_domain(feat_x16_s, feat_x16_t)
-            loss_categories = 0
-            loss_instances = 0
-
-            loss = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
-            loss += loss_domains
+            loss_source = loss_calc(logits_s1, labels_s['cls'].cuda()) + loss_calc(logits_s2, labels_s['cls'].cuda())
+            loss_target = loss_calc(logits_t1, labels_t['cls'].cuda()) + loss_calc(logits_t2, labels_t['cls'].cuda())
+            loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
+            loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)
+            if i_iter >= 0:#cfg.align_class:
+                loss_class = aligner.align_category(feat_x16_s, labels_s['cls'], feat_x16_t, labels_t['cls'])
+            else:
+                loss_class = 0
+            loss = loss_seg + loss_domain + loss_class
             optimizer.zero_grad()
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)
             optimizer.step()
+            log_text = f'Mix iter={i_iter}, lr={lr:.3f}, loss_seg={loss_seg:.3f}, ' \
+                       f'loss_domain={loss_domain:.3f}, loss_class={loss_class:.3f}, loss={loss:.3f}'
 
         # evaluating
         if i_iter % 50 == 0:
             logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
-            text = 'Mix iter = %d, loss_seg = %.3f, lr = %.3f' % (
-                i_iter, loss, lr)
-            logger.info(text)
+            logger.info(log_text)
         if i_iter >= cfg.NUM_STEPS_STOP - 1:
             print('save model ...')
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')

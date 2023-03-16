@@ -116,30 +116,27 @@ class Deeplabv2(er.ERModule):
         return block(inplanes, dilation_series, padding_series, num_classes)
 
     def forward(self, x):
-        B, C, H, W = x.shape
         if self.config.multi_layer:
             if self.config.cascade:
-                c3, c4 = self.encoder(x)[-2:]
-                x1 = self.layer5(c3)
-                x1 = F.interpolate(x1, (H, W), mode='bilinear', align_corners=True)
-                x2 = self.layer6(c4)
-                x2 = F.interpolate(x2, (H, W), mode='bilinear', align_corners=True)
+                feat1, feat2 = self.encoder(x)[-2:]
+                x1 = self.layer5(feat1)
+                x2 = self.layer6(feat2)
+                x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
+                x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                 if self.training:
-                    return x1, x2
+                    return x1, feat1, x2, feat2
                 else:
-                    return (x2).softmax(dim=1)
+                    return (x1.softmax(dim=1) + x2.softmax(dim=1)) / 2
             else:
-
-                x = self.encoder(x)[-1]
-                x1 = self.layer5(x)
-                x1 = F.interpolate(x1, (H, W), mode='bilinear', align_corners=True)
-                x2 = self.layer6(x)
-                x2 = F.interpolate(x2, (H, W), mode='bilinear', align_corners=True)
+                feat = self.encoder(x)[-1]
+                x1 = self.layer5(feat)
+                x2 = self.layer6(feat)
+                x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
+                x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                 if self.training:
-                    return x1, x2
+                    return x1, x2, feat
                 else:
-                    return (x1+x2).softmax(dim=1)
-
+                    return (x1.softmax(dim=1) + x2.softmax(dim=1)) / 2
         else:
             feat, x = self.encoder(x)[-2:]
             #x = self.layer5(x)
@@ -182,7 +179,7 @@ if __name__ == '__main__':
             output_stride=16,
             pretrained=True,
         ),
-        multi_layer=False,
+        multi_layer=True,
         cascade=False,
         use_ppm=True,
         ppm=dict(
@@ -194,4 +191,5 @@ if __name__ == '__main__':
     )).cuda()
     x_i = torch.randn([8, 3, 512, 512]).cuda()
     rs = model(x_i)
+    print(x_i.shape)
     pass

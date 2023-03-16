@@ -79,7 +79,7 @@ def main():
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
-        if i_iter < 5:#cfg.WARMUP_STEP:
+        if i_iter < cfg.WARMUP_STEP:
             # Train with Source
             optimizer.zero_grad()
             batch = trainloader_iter.next()
@@ -131,7 +131,6 @@ def main():
 
             # train model using both domains
             model.train()
-            lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
@@ -144,7 +143,7 @@ def main():
             loss_target = loss_calc(logits_t1, labels_t['cls'].cuda()) + loss_calc(logits_t2, labels_t['cls'].cuda())
             loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
             loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)
-            if i_iter >= 0:#cfg.align_class:
+            if i_iter >= cfg.align_class:
                 loss_class = aligner.align_category(feat_x16_s, labels_s['cls'], feat_x16_t, labels_t['cls'])
             else:
                 loss_class = 0

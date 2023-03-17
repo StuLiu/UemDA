@@ -143,7 +143,7 @@ def main():
             loss_target = loss_calc(logits_t1, labels_t['cls'].cuda()) + loss_calc(logits_t2, labels_t['cls'].cuda())
             loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
             loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)
-            if i_iter >= cfg.align_class:
+            if i_iter >= args.align_class:
                 loss_class = aligner.align_category(feat_x16_s, labels_s['cls'], feat_x16_t, labels_t['cls'])
             else:
                 loss_class = 0

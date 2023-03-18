@@ -26,11 +26,11 @@ from skimage.io import imsave, imread
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
-# CUDA_VISIBLE_DEVICES=3 python GAST_train.py --config_path st.gast.2urban
-parser = argparse.ArgumentParser(description='Run GAST methods.')
+# CUDA_VISIBLE_DEVICES=3 python CBST_train_ga.py --config_path st.cbst_ga.2urban
+parser = argparse.ArgumentParser(description='Run CBST_ga methods.')
 
 parser.add_argument('--config_path', type=str, help='config path')
-parser.add_argument('--align-class', type=int, default=4500, help='the first iteration from which align the classes')
+parser.add_argument('--align-class', type=int, default=5000, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 

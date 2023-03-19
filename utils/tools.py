@@ -2,27 +2,158 @@ import importlib
 import logging
 import time
 import os
-import torch.nn.functional as F
-import torch
 import shutil
-import numpy as np
 import random
+import torch
+import torch.nn as nn
+import torch.nn.functional as tnf
+import numpy as np
+import ttach as tta
+import ever as er
+# import pydensecrf.densecrf as dcrf # require py36
+
 from skimage.io import imsave
 from functools import reduce
 from collections import OrderedDict
+from tqdm import tqdm
+from math import *
+from scipy import ndimage
+
+
+def pad_image(img, target_size):
+    """Pad an image up to the target size."""
+    rows_missing = target_size[0] - img.shape[2]
+    cols_missing = target_size[1] - img.shape[3]
+    padded_img = tnf.pad(img, (0, 0, rows_missing, cols_missing), 'constant', 0)
+    return padded_img
+
+
+def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False):
+    image_size = image.shape  # i.e. (1,3,1024,1024)
+    overlap = 1 / 2  # 每次滑动的重合率为1/2
+
+    stride = ceil(tile_size[0] * (1 - overlap))  # 滑动步长:512*(1-1/2) = 256
+    tile_rows = int(ceil((image_size[2] - tile_size[0]) / stride) + 1)  # 行滑动步数:(1024-512)/256 + 1 = 3
+    tile_cols = int(ceil((image_size[3] - tile_size[1]) / stride) + 1)  # 列滑动步数:(1024-512)/256 + 1 = 3
+
+    full_probs = torch.zeros((1, num_classes, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 (1,7,1024,1024)
+    count_predictions = torch.zeros((1, 1, image_size[2], image_size[3])).cuda()  # 初始化计数矩阵 (1,1,1024,1024)
+
+    for row in range(tile_rows):  # row = 0,1,2
+        for col in range(tile_cols):  # col = 0,1,2
+            x1 = int(col * stride)  # 起始位置x1 = 0 * 256 = 0
+            y1 = int(row * stride)  # y1 = 0 * 256 = 0
+            x2 = min(x1 + tile_size[1], image_size[3])  # 末位置x2 = min(0+512, 1024)
+            y2 = min(y1 + tile_size[0], image_size[2])  # y2 = min(0+512, 1024)
+            x1 = max(int(x2 - tile_size[1]), 0)  # 重新校准起始位置x1 = max(512-512, 0)
+            y1 = max(int(y2 - tile_size[0]), 0)  # y1 = max(512-512, 0)
+
+            img = image[:, :, y1:y2, x1:x2]  # 滑动窗口对应的图像 imge[:, :, 0:512, 0:512]
+            padded_img = pad_image(img, tile_size)  # padding 确保扣下来的图像为512*512
+
+            # 将扣下来的部分传入网络，网络输出概率图。
+            # use softmax
+            if tta is True:
+                padded = tta_predict(model, padded_img)
+            else:
+                padded = model(padded_img)
+                # padded = tnf.softmax(padded, dim=1)
+
+            pre = padded[:, :, 0:img.shape[2], 0:img.shape[3]]  # 扣下相应面积 shape(1,7,512,512)
+            count_predictions[:, :, y1:y2, x1:x2] += 1  # 窗口区域内的计数矩阵加1
+            full_probs[:, :, y1:y2, x1:x2] += pre  # 窗口区域内的全概率矩阵叠加预测结果
+    # average the predictions in the overlapping regions
+    full_probs /= count_predictions
+    return full_probs  # 返回整张图的平均概率 shape(1, 1, 1024,1024)
+
+
+def predict_whole(model, image, tile_size):
+    image = torch.from_numpy(image)
+    interp = nn.Upsample(size=tile_size, mode='bilinear', align_corners=True)
+    x = model(image.cuda())
+    x = interp(x)
+    return x
+
+
+def predict_multiscale(model, image, scales=(0.75, 1.0, 1.25, 1.5, 1.75, 2.0), tile_size=(512, 512)):
+    """
+    Predict an image by looking at it with different scales.
+        We choose the "predict_whole_img" for the image with less than the original input size,
+        for the input of larger size, we would choose the cropping method to ensure that GPU memory is enough.
+    """
+    image_size = image.shape
+    image = image.data.cpu().numpy()
+
+    full_probs = torch.zeros((1, 1, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 shape(1024,2048,19)
+
+    for scale in scales:
+        scale = float(scale)
+        print("Predicting image scaled by %f" % scale)
+        scale_image = ndimage.zoom(image, (1.0, 1.0, scale, scale), order=1, prefilter=False)
+
+        scaled_probs = predict_whole(model, scale_image, tile_size)
+        full_probs += scaled_probs
+
+    full_probs /= len(scales)
+
+    return full_probs
+
+
+def tta_predict(model, img):
+    tta_transforms = tta.Compose(
+        [
+            tta.HorizontalFlip(),
+            tta.Rotate90(angles=[0, 90, 180, 270]),
+        ])
+
+    xs = []
+
+    for t in tta_transforms:
+        aug_img = t.augment_image(img)
+        aug_x = model(aug_img)
+        # aug_x = tnf.softmax(aug_x, dim=1)
+
+        x = t.deaugment_mask(aug_x)
+        xs.append(x)
+
+    xs = torch.cat(xs, 0)
+    x = torch.mean(xs, dim=0, keepdim=True)
+
+    return x
+
+
+def mixup(s_img, s_lab, t_img, t_lab):
+    s_lab, t_lab = s_lab.unsqueeze(1), t_lab.unsqueeze(1)
+
+    batch_size = s_img.size(0)
+    rand = torch.randperm(batch_size)
+    lam = int(np.random.beta(0.2, 0.2) * s_img.size(2))
+
+    new_s_img = torch.cat([s_img[:, :, 0:lam, :], t_img[rand][:, :, lam:s_img.size(2), :]], dim=2)
+    new_s_lab = torch.cat([s_lab[:, :, 0:lam, :], t_lab[rand][:, :, lam:s_img.size(2), :]], dim=2)
+
+    new_t_img = torch.cat([t_img[rand][:, :, 0:lam, :], s_img[:, :, lam:t_img.size(2), :]], dim=2)
+    new_t_lab = torch.cat([t_lab[rand][:, :, 0:lam, :], s_lab[:, :, lam:t_img.size(2), :]], dim=2)
+
+    new_s_lab, new_t_lab = new_s_lab.squeeze(1), new_t_lab.squeeze(1)
+
+    return new_s_img, new_s_lab, new_t_img, new_t_lab
+
+
 def import_config(config_name, prefix='configs'):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
     os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
-    shutil.copy(cfg_path.replace('.', '/')+'.py', os.path.join(m.SNAPSHOT_DIR, 'config.py'))
+    shutil.copy(cfg_path.replace('.', '/') + '.py', os.path.join(m.SNAPSHOT_DIR, 'config.py'))
     return m
 
-def lr_poly(base_lr, iter, max_iter, power):
-    return base_lr * ((1 - float(iter) / max_iter) ** (power))
+
+def lr_poly(base_lr, i_iter, max_iter, power):
+    return base_lr * ((1 - float(i_iter) / max_iter) ** power)
 
 
-def lr_warmup(base_lr, iter, warmup_iter):
-    return base_lr * (float(iter) / warmup_iter)
+def lr_warmup(base_lr, i_iter, warmup_iter):
+    return base_lr * (float(i_iter) / warmup_iter)
 
 
 def adjust_learning_rate(optimizer, i_iter, cfg):
@@ -35,6 +166,7 @@ def adjust_learning_rate(optimizer, i_iter, cfg):
         optimizer.param_groups[1]['lr'] = lr * 10
     return lr
 
+
 def adjust_learning_rate_D(optimizer, i_iter, cfg):
     if i_iter < cfg.PREHEAT_STEPS:
         lr = lr_warmup(cfg.LEARNING_RATE_D, i_iter, cfg.PREHEAT_STEPS)
@@ -44,6 +176,7 @@ def adjust_learning_rate_D(optimizer, i_iter, cfg):
     if len(optimizer.param_groups) > 1:
         optimizer.param_groups[1]['lr'] = lr * 10
     return lr
+
 
 def get_console_file_logger(name, level=logging.INFO, logdir='./baseline'):
     logger = logging.Logger(name)
@@ -68,24 +201,24 @@ def loss_calc(pred, label, reduction='mean'):
     """
     This function returns cross entropy loss for semantic segmentation
     """
-    
-    loss = F.cross_entropy(pred, label.long(), ignore_index=-1, reduction=reduction)
-   
+
+    loss = tnf.cross_entropy(pred, label.long(), ignore_index=-1, reduction=reduction)
+
     return loss
-    
+
 
 def bce_loss(pred, label):
     """
     This function returns cross entropy loss for semantic segmentation
     """
-    return F.binary_cross_entropy_with_logits(pred, label)
-
+    return tnf.binary_cross_entropy_with_logits(pred, label)
 
 
 def robust_binary_crossentropy(pred, tgt):
     inv_tgt = -tgt + 1.0
     inv_pred = -pred + 1.0 + 1e-6
     return -(tgt * torch.log(pred + 1e-6) + inv_tgt * torch.log(inv_pred))
+
 
 def bugged_cls_bal_bce(pred, tgt):
     inv_tgt = -tgt + 1.0
@@ -108,7 +241,7 @@ def som(loss, ratio=0.5, reduction='none'):
     num_hns = int(ratio * num_inst)
     # 2. select loss
     top_loss, _ = loss.reshape(-1).topk(num_hns, -1)
-    if reduction is 'none':
+    if reduction == 'none':
         return top_loss
     else:
         loss_mask = (top_loss != 0)
@@ -118,18 +251,18 @@ def som(loss, ratio=0.5, reduction='none'):
 
 def seed_torch(seed=2333):
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed) 
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.enabled = True
-    
 
-def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
+
+def seed_worker():
+    worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
@@ -138,7 +271,7 @@ def ias_thresh(conf_dict, n_class, alpha, w=None, gamma=1.0):
     if w is None:
         w = np.ones(n_class)
     # threshold
-    cls_thresh = np.ones(n_class,dtype = np.float32)
+    cls_thresh = np.ones(n_class, dtype=np.float32)
     for idx_cls in np.arange(0, n_class):
         if conf_dict[idx_cls] != None:
             arr = np.array(conf_dict[idx_cls])
@@ -146,8 +279,6 @@ def ias_thresh(conf_dict, n_class, alpha, w=None, gamma=1.0):
     return cls_thresh
 
 
-import ever as er
-from tqdm import tqdm
 
 COLOR_MAP = OrderedDict(
     Background=(255, 255, 255),
@@ -161,12 +292,15 @@ COLOR_MAP = OrderedDict(
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
-def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=dict(), logger=None):
+
+def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None, logger=None):
+    if pseudo_dict is None:
+        pseudo_dict = dict()
     logger.info('Start generate pseudo labels: %s' % save_dir)
     viz_op = er.viz.VisualizeSegmm(os.path.join(save_dir, 'vis'), palette)
     os.makedirs(os.path.join(save_dir, 'pred'), exist_ok=True)
     model.eval()
-    cls_thresh = np.ones(n_class)*0.9
+    cls_thresh = np.ones(n_class) * 0.9
     for image, labels in tqdm(target_loader):
         out = model(image.cuda())
         logits = out[0] if isinstance(out, tuple) else out
@@ -178,15 +312,16 @@ def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=dict(
         for cls in range(n_class):
             logits_cls_dict[cls].extend(logits_pred[label_pred == cls].astype(np.float16))
         # instance adaptive selector
-        tmp_cls_thresh = ias_thresh(logits_cls_dict, n_class, pseudo_dict['pl_alpha'],  w=cls_thresh, gamma=pseudo_dict['pl_gamma'])
+        tmp_cls_thresh = ias_thresh(logits_cls_dict, n_class, pseudo_dict['pl_alpha'], w=cls_thresh,
+                                    gamma=pseudo_dict['pl_gamma'])
         beta = pseudo_dict['pl_beta']
-        cls_thresh = beta*cls_thresh + (1-beta)*tmp_cls_thresh
-        cls_thresh[cls_thresh>=1] = 0.999
+        cls_thresh = beta * cls_thresh + (1 - beta) * tmp_cls_thresh
+        cls_thresh[cls_thresh >= 1] = 0.999
 
         np_logits = logits.data.cpu().numpy()
         for _i, fname in enumerate(labels['fname']):
             # save pseudo label
-            logit = np_logits[_i].transpose(1,2,0)
+            logit = np_logits[_i].transpose(1, 2, 0)
             label = np.argmax(logit, axis=2)
             logit_amax = np.amax(logit, axis=2)
             label_cls_thresh = np.apply_along_axis(lambda x: [cls_thresh[e] for e in x], 1, label)
@@ -198,28 +333,31 @@ def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=dict(
 
     return os.path.join(save_dir, 'pred')
 
+
 def entropyloss(logits, weight=None):
     """
     logits:     N * C * H * W
     weight:     N * 1 * H * W
     """
-    val_num = weight[weight>0].numel()
+    val_num = weight[weight > 0].numel()
     logits_log_softmax = torch.log_softmax(logits, dim=1)
     entropy = -torch.softmax(logits, dim=1) * weight * logits_log_softmax
     entropy_reg = torch.sum(entropy) / val_num
     return entropy_reg
+
 
 def kldloss(logits, weight):
     """
     logits:     N * C * H * W
     weight:     N * 1 * H * W
     """
-    val_num = weight[weight>0].numel()
+    val_num = weight[weight > 0].numel()
     logits_log_softmax = torch.log_softmax(logits, dim=1)
     num_classes = logits.size()[1]
-    kld = - 1/num_classes * weight * logits_log_softmax
+    kld = - 1 / num_classes * weight * logits_log_softmax
     kld_reg = torch.sum(kld) / val_num
     return kld_reg
+
 
 def count_model_parameters(module, _default_logger=None):
     cnt = 0
@@ -228,7 +366,41 @@ def count_model_parameters(module, _default_logger=None):
     _default_logger.info('#params: {}, {} M'.format(cnt, round(cnt / float(1e6), 3)))
 
     return cnt
-    
+
+
+# def get_crf(mask, img, num_classes=7, size=512):
+#     mask = np.transpose(mask, (2, 0, 1))
+#     img = np.ascontiguousarray(img)
+#
+#     unary = -np.log(mask + 1e-8)
+#     unary = unary.reshape((num_classes, -1))
+#     unary = np.ascontiguousarray(unary)
+#
+#     d = dcrf.DenseCRF2D(size, size, num_classes)
+#     d.setUnaryEnergy(unary)
+#
+#     d.addPairwiseGaussian(sxy=5, compat=3)
+#     d.addPairwiseBilateral(sxy=10, srgb=13, rgbim=img, compat=10)
+#
+#     output = d.inference(10)
+#     map = np.argmax(output, axis=0).reshape((size, size))
+#     return map
+#
+#
+# def crf_predict(model, img, size=1024):
+#     output = model(img)
+#
+#     mask = tnf.softmax(output, dim=1)
+#     mask = mask.squeeze(0).permute(1, 2, 0).cpu().numpy()
+#     mask = mask.astype(np.float32)
+#
+#     img = img.squeeze(0).permute(1, 2, 0).cpu().numpy()
+#
+#     # img = Normalize_back(img, flag=opt.dataset)
+#     crf_out = get_crf(mask, img.astype(np.uint8), size=size)
+#     return crf_out
+
+
 if __name__ == '__main__':
     seed_torch(2333)
     s = torch.randn((5, 5)).cuda()

@@ -8,7 +8,7 @@ from module.Encoder import Deeplabv2
 from argparse import ArgumentParser
 
 
-def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test'):
+def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test', slide=True):
     os.makedirs(save_dir, exist_ok=True)
     seed_torch(2333)
     model_state_dict = torch.load(ckpt_path)
@@ -22,7 +22,7 @@ def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test'):
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
             ret = ret.to(torch.device('cuda'))
-            cls = model(ret)
+            cls = pre_slide(model, ret, tta=False) if slide else model(ret)
             cls = cls.argmax(dim=1).cpu().numpy()
             for fname, pred in zip(ret_gt['fname'], cls):
                 imsave(os.path.join(save_dir, fname), pred.astype(np.uint8))

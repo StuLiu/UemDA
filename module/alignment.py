@@ -161,16 +161,47 @@ class Aligner:
 
 
 if __name__ == '__main__':
-    aligner = Aligner(feat_channels=128, class_num=7)
-    f_s = torch.randn([8, 128, 32, 32]).cuda() * 2
-    f_t = torch.randn([8, 128, 32, 32]).cuda() + 1
-    l_s = torch.zeros([8, 32, 32]).long().cuda()
-    l_t = torch.ones([8, 32, 32]).long().cuda()
+    from module.Encoder import Deeplabv2
+    import torch.optim as optim
+    model = Deeplabv2(dict(
+        backbone=dict(
+            resnet_type='resnet50',
+            output_stride=16,
+            pretrained=True,
+        ),
+        multi_layer=True,
+        cascade=False,
+        use_ppm=True,
+        ppm=dict(
+            num_classes=7,
+            use_aux=False,
+        ),
+        inchannels=2048,
+        num_classes=7
+    )).cuda()
+    model.train()
+    optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+    aligner = Aligner(feat_channels=2048, class_num=7)
+    x_s = torch.randn([8, 3, 512, 512]).cuda() * 2
+    x_t = torch.randn([8, 3, 512, 512]).cuda() + 1
+    l_s = torch.randint(0, 7, [8, 512, 512]).long().cuda()
+    l_t = torch.randint(0, 7, [8, 512, 512]).long().cuda()
     # f_s = torch.randn([8, 128]).cuda() * 1
     # f_t = torch.randn([8, 128]).cuda()
+    _, _, f_s = model(x_s)
+    _, _, f_t = model(x_t)
     print(f_s.device)
-
-    print(l_s.unsqueeze(dim=0).shape)
-    # print(aligner.align_domain(f_s, f_t))
-    print(aligner.align_category(f_s, l_s, f_t, l_t))
-    pass
+    loss_domain = aligner.align_domain(f_s, f_t)
+    loss_class = aligner.align_category(f_s, l_s, f_t, l_t)
+    optimizer.zero_grad()
+    # loss_domain.backward()
+    loss_class.backward()
+    for name, param in model.named_parameters():
+        print(name, param.requires_grad)
+        print(param.grad)
+        break
+    #
+    # # print(aligner.align_domain(f_s, f_t))
+    # print(aligner.align_category(f_s, l_s, f_t, l_t))
+    # pass

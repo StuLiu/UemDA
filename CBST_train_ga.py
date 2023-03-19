@@ -30,7 +30,7 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run CBST_ga methods.')
 
 parser.add_argument('--config_path', type=str, help='config path')
-parser.add_argument('--align-class', type=int, default=5000, help='the first iteration from which align the classes')
+parser.add_argument('--align-class', type=int, default=None, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 
@@ -38,6 +38,7 @@ cfg = import_config(args.config_path)
 def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     logger = get_console_file_logger(name='GAST', logdir=cfg.SNAPSHOT_DIR)
+    logger.info(args.align_class)
     cudnn.enabled = True
 
     save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, 'pseudo_label')  # in 'save_path'. Save labelIDs, not trainIDs.
@@ -143,7 +144,7 @@ def main():
             loss_target = loss_calc(logits_t1, labels_t['cls'].cuda()) + loss_calc(logits_t2, labels_t['cls'].cuda())
             loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
             loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)
-            if i_iter >= args.align_class:
+            if i_iter >= (args.align_class if args.align_class else cfg.ALIGN_CLASS):
                 loss_class = aligner.align_category(feat_x16_s, labels_s['cls'], feat_x16_t, labels_t['cls'])
             else:
                 loss_class = 0

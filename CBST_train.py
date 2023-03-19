@@ -46,7 +46,7 @@ def main():
                 output_stride=16,
                 pretrained=True,
             ),
-        multi_layer=False,
+        multi_layer=True,
         cascade=False,
         use_ppm=True,
         ppm=dict(

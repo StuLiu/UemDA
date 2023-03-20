@@ -165,7 +165,7 @@ def main():
                 model.train()
 
 
-def val(model, targetloader, save_round_eval_path, cfg):
+def val(model, targetloader, save_round_eval_path, cfg, slide=True):
     """Create the model and start the evaluation process."""
 
     model.eval()
@@ -191,7 +191,8 @@ def val(model, targetloader, save_round_eval_path, cfg):
     with torch.no_grad():
         for batch in tqdm(targetloader):
             images, labels = batch
-            output = model(images.cuda()).softmax(dim=1)
+            cls = pre_slide(model, images.cuda(), tta=True) if slide else model(images.cuda())
+            output = cls.softmax(dim=1)
             output = output[0] if isinstance(output, tuple) else output
             pred_label = output.argmax(dim=1).cpu().numpy()
             output = output.cpu().numpy()

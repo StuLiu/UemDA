@@ -173,7 +173,7 @@ def main():
             model.train()
 
 
-def val(model, targetloader, save_round_eval_path, _cfg):
+def val(model, targetloader, save_round_eval_path, _cfg, slide=True):
     """Create the model and start the evaluation process."""
 
     model.eval()
@@ -185,10 +185,8 @@ def val(model, targetloader, save_round_eval_path, _cfg):
     # viz_op = er.viz.VisualizeSegmm(save_pred_vis_path, palette)
     # metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=_cfg.SNAPSHOT_DIR, logger=logger)
 
-    if not os.path.exists(save_prob_path):
-        os.makedirs(save_prob_path)
-    if not os.path.exists(save_pred_path):
-        os.makedirs(save_pred_path)
+    os.makedirs(save_prob_path, exist_ok=True)
+    os.makedirs(save_pred_path, exist_ok=True)
 
     # saving output data
     conf_dict = {k: [] for k in range(_cfg.NUM_CLASSES)}
@@ -198,7 +196,8 @@ def val(model, targetloader, save_round_eval_path, _cfg):
     with torch.no_grad():
         for batch in tqdm(targetloader):
             images, labels = batch
-            output = model(images.cuda()).softmax(dim=1)
+            cls = pre_slide(model, images.cuda(), tta=True) if slide else model(images.cuda())
+            output = cls.softmax(dim=1)
             output = output[0] if isinstance(output, tuple) else output
             pred_label = output.argmax(dim=1).cpu().numpy()
             output = output.cpu().numpy()

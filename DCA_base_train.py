@@ -87,11 +87,10 @@ def main():
             preds1, preds2, feats = model(images_s.cuda())
 
             # Loss: segmentation + regularization
-            loss_seg = loss_calc(preds1, labels_s['cls'].cuda())+\
-                       loss_calc(preds2, labels_s['cls'].cuda())
+            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), multi=True)
             # source_intra = ICR([preds1, preds2, feats],
-            #                                        multi_layer=True)
-            loss = loss_seg #+ source_intra
+            #                    multi_layer=True)
+            loss = loss_seg # + source_intra
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -194,7 +193,7 @@ def main():
                     model.train()
 
 
-def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path):
+def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, slide=True):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -204,7 +203,7 @@ def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path):
 
     with torch.no_grad():
         for ret, ret_gt in tqdm(evalloader):
-            ret = ret.to(torch.device('cuda'))
+            ret = ret.cuda()
 
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)
             # cls = pre_slide(model, ret, tta=True)

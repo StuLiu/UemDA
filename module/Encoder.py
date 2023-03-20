@@ -121,34 +121,30 @@ class Deeplabv2(er.ERModule):
                 feat1, feat2 = self.encoder(x)[-2:]
                 x1 = self.layer5(feat1)
                 x2 = self.layer6(feat2)
-                x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
-                x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                 if self.training:
                     return x1, feat1, x2, feat2
                 else:
+                    x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
+                    x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                     return (x1.softmax(dim=1) + x2.softmax(dim=1)) / 2
             else:
                 feat = self.encoder(x)[-1]
                 x1 = self.layer5(feat)
                 x2 = self.layer6(feat)
-                x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
-                x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                 if self.training:
                     return x1, x2, feat
                 else:
+                    x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
+                    x2 = F.interpolate(x2, x.shape[-2:], mode='bilinear', align_corners=True)
                     return (x1.softmax(dim=1) + x2.softmax(dim=1)) / 2
         else:
-            feat, x = self.encoder(x)[-2:]
-            #x = self.layer5(x)
-            
-            x = self.cls_pred(x)
-            #x = self.cls_pred(x)
-            x = F.interpolate(x, (H, W), mode='bilinear', align_corners=True)
-            #feat = F.interpolate(feat, (H, W), mode='bilinear', align_corners=True)
+            feat = self.encoder(x)[-1]
+            x1 = self.cls_pred(feat)
             if self.training:
-                return x, feat
+                return x1, feat
             else:
-                return x.softmax(dim=1)
+                x1 = F.interpolate(x1, x.shape[-2:], mode='bilinear', align_corners=True)
+                return x1.softmax(dim=1)
 
 
     def set_default_config(self):

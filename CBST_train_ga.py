@@ -29,7 +29,7 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 # CUDA_VISIBLE_DEVICES=3 python CBST_train_ga.py --config_path st.cbst_ga.2urban
 parser = argparse.ArgumentParser(description='Run CBST_ga methods.')
 
-parser.add_argument('--config_path', type=str, help='config path')
+parser.add_argument('--config_path', type=str, help='config path', default='st.cbst_ga.2urban')
 parser.add_argument('--align-class', type=int, default=None, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -37,7 +37,7 @@ cfg = import_config(args.config_path)
 
 def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
-    logger = get_console_file_logger(name='GAST', logdir=cfg.SNAPSHOT_DIR)
+    logger = get_console_file_logger(name='CBST_ga', logdir=cfg.SNAPSHOT_DIR)
     logger.info(args.align_class)
     cudnn.enabled = True
 
@@ -85,10 +85,9 @@ def main():
             optimizer.zero_grad()
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
-            pred_source = model(images_s.cuda())
-            pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
+            pred_s1, pred_s2, _ = model(images_s.cuda())
             # Segmentation Loss
-            loss = loss_calc(pred_source, labels_s['cls'].cuda())
+            loss = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
             # with amp.scale_loss(loss, optimizer) as scaled_loss:
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)
@@ -136,12 +135,13 @@ def main():
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
             logits_s1, logits_s2, feat_x16_s = model(images_s.cuda())
+            loss_source = loss_calc([logits_s1, logits_s2], labels_s['cls'].cuda(), multi=True)
+
             batch = targetloader_iter.next()
             images_t, labels_t = batch[0]
             logits_t1, logits_t2, feat_x16_t = model(images_t.cuda())
+            loss_target = loss_calc([logits_t1, logits_t2], labels_s['cls'].cuda(), multi=True)
 
-            loss_source = loss_calc(logits_s1, labels_s['cls'].cuda()) + loss_calc(logits_s2, labels_s['cls'].cuda())
-            loss_target = loss_calc(logits_t1, labels_t['cls'].cuda()) + loss_calc(logits_t2, labels_t['cls'].cuda())
             loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
             loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)
             if i_iter >= (args.align_class if args.align_class else cfg.ALIGN_CLASS):

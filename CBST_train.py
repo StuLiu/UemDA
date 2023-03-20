@@ -19,7 +19,7 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 parser = argparse.ArgumentParser(description='Run CBST methods.')
 
-parser.add_argument('--config_path',  type=str,
+parser.add_argument('--config-path',  type=str, default='st.cbst.2urban',
                     help='config path')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -70,6 +70,7 @@ def main():
     optimizer.zero_grad()
     # mix_trainloader = None
     targetloader = None
+    targetloader_iter = None
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
         if i_iter < cfg.WARMUP_STEP:
@@ -78,10 +79,10 @@ def main():
             lr = adjust_learning_rate(optimizer, i_iter, cfg)
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
-            pred_source = model(images_s.cuda())
-            pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
+            pred_s1, pred_s2, _  = model(images_s.cuda())
+            # pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
             #Segmentation Loss
-            loss = loss_calc(pred_source, labels_s['cls'].cuda())
+            loss = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
             # with amp.scale_loss(loss, optimizer) as scaled_loss:
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)
@@ -128,20 +129,26 @@ def main():
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
 
+            # if targetloader is None:
+            #     target_config = cfg.SOURCE_DATA_CONFIG
+            #     logger.info(target_config)
+            #     targetloader = LoveDALoader(target_config)
+            #     targetloader_iter = Iterator(targetloader)
+
             model.train()
             lr = adjust_learning_rate(optimizer, i_iter, cfg)
-            batch = trainloader_iter.next()
 
+            batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
-            pred_source = model(images_s.cuda())
-            pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
+            pred_s1, pred_s2, _  = model(images_s.cuda())
+            loss_source = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
 
             batch = targetloader_iter.next()
             images_t, labels_t = batch[0]
-            pred_target = model(images_t.cuda())
-            pred_target = pred_target[0] if isinstance(pred_target, tuple) else pred_target
+            pred_t1, pred_t2, _   = model(images_t.cuda())
+            loss_target = loss_calc([pred_t1, pred_t2], labels_t['cls'].cuda(), multi=True)
 
-            loss = loss_calc(pred_source, labels_s['cls'].cuda()) * cfg.SOURCE_LOSS_WEIGHT + loss_calc(pred_target, labels_t['cls'].cuda()) * cfg.PSEUDO_LOSS_WEIGHT
+            loss = loss_source * cfg.SOURCE_LOSS_WEIGHT + loss_target * cfg.PSEUDO_LOSS_WEIGHT
             optimizer.zero_grad()
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)

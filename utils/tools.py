@@ -20,6 +20,10 @@ from math import *
 from scipy import ndimage
 
 
+def get_curr_time():
+    return f'{time.strftime("%Y%m%d%H%M%S", time.localtime())}'
+
+
 def pad_image(img, target_size):
     """Pad an image up to the target size."""
     rows_missing = target_size[0] - img.shape[2]
@@ -143,6 +147,7 @@ def mixup(s_img, s_lab, t_img, t_lab):
 def import_config(config_name, prefix='configs'):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
+    m.SNAPSHOT_DIR += get_curr_time()
     os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
     shutil.copy(cfg_path.replace('.', '/') + '.py', os.path.join(m.SNAPSHOT_DIR, 'config.py'))
     return m
@@ -197,12 +202,25 @@ def get_console_file_logger(name, level=logging.INFO, logdir='./baseline'):
     return logger
 
 
-def loss_calc(pred, label, reduction='mean'):
+def loss_calc(pred, label, reduction='mean', multi=False):
     """
     This function returns cross entropy loss for semantic segmentation
     """
 
-    loss = tnf.cross_entropy(pred, label.long(), ignore_index=-1, reduction=reduction)
+    if multi is True:
+        loss = 0
+        num = 0
+        for p in pred:
+            if p.size()[-2:] != label.size()[-2:]:
+                p = tnf.interpolate(p, size=label.size()[-2:], mode='bilinear', align_corners=True)
+            l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
+            loss += l
+            num += 1
+        loss = loss / num
+    else:
+        if pred.size()[-2:] != label.size()[-2:]:
+            pred = tnf.interpolate(pred, size=label.size()[-2:], mode='bilinear', align_corners=True)
+        loss = tnf.cross_entropy(pred, label.long(), ignore_index=-1, reduction=reduction)
 
     return loss
 

@@ -41,7 +41,6 @@ def main():
 
     logger = get_console_file_logger(name='MY', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
-
     cudnn.enabled = True
 
     model = Deeplabv2(dict(
@@ -88,10 +87,11 @@ def main():
             preds1, preds2, feats = model(images_s.cuda())
 
             # Loss: segmentation + regularization
-            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), multi=True)
-            source_intra = ICR([preds1, preds2, feats],
-                               multi_layer=True)
-            loss = loss_seg + source_intra
+            loss_seg = loss_calc(preds1, labels_s['cls'].cuda())+\
+                       loss_calc(preds2, labels_s['cls'].cuda())
+            # source_intra = ICR([preds1, preds2, feats],
+            #                                        multi_layer=True)
+            loss = loss_seg #+ source_intra
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -101,8 +101,8 @@ def main():
             if i_iter % 50 == 0:
                 logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
                 text = 'iter = %d, total = %.3f, seg = %.3f, ' \
-                       'sour_intra = %.3f, lr = %.3f' % (
-                           i_iter, loss, loss_seg, source_intra, lr)
+                       'lr = %.3f' % (
+                    i_iter, loss, loss_seg, lr)
                 logger.info(text)
 
             if i_iter >= cfg.NUM_STEPS_STOP - 1:
@@ -162,16 +162,16 @@ def main():
                 loss_seg = loss_calc([pred_s1, pred_s2], lab_s, multi=True)
                 loss_pseudo = loss_calc([pred_t1, pred_t2], lab_t, multi=True)
 
-                source_intra = ICR([pred_s1, pred_s2, feat_s],
-                                   multi_layer=True)
-                # target_intra = intra_domain_regularize([pred_t1, feat_t1, pred_t2, feat_t2],
-                #                                        multi_layer=True)
+                # source_intra = ICR([pred_s1, pred_s2, feat_s],
+                #                    multi_layer=True)
+                # # target_intra = intra_domain_regularize([pred_t1, feat_t1, pred_t2, feat_t2],
+                # #                                        multi_layer=True)
+                #
+                # domain_cross = CCR([pred_s1, pred_s2, feat_s],
+                #                    [pred_t1, pred_t2, feat_t],
+                #                    multi_layer=True)
 
-                domain_cross = CCR([pred_s1, pred_s2, feat_s],
-                                   [pred_t1, pred_t2, feat_t],
-                                   multi_layer=True)
-
-                loss = loss_seg + loss_pseudo  + (source_intra + domain_cross)
+                loss = loss_seg + loss_pseudo # + (source_intra + domain_cross)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -182,9 +182,8 @@ def main():
                 if i_iter % 50 == 0:
                     logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
                     text = 'iter = %d, total = %.3f, seg = %.3f, pseudo = %.3f, ' \
-                           'sour_intra = %.3f, cross = %.3f, lr = %.3f' % \
-                           (i_iter, loss, loss_seg, loss_pseudo,
-                            source_intra, domain_cross, lr)
+                           'lr = %.3f' % \
+                           (i_iter, loss, loss_seg, loss_pseudo, lr)
                     logger.info(text)
 
                 if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
@@ -195,7 +194,7 @@ def main():
                     model.train()
 
 
-def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, slide=True):
+def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -207,8 +206,8 @@ def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, slide=Tr
         for ret, ret_gt in tqdm(evalloader):
             ret = ret.to(torch.device('cuda'))
 
-            # cls = model(ret)
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)
+            # cls = pre_slide(model, ret, tta=True)
             # pseudo selection, from -1~6
             if cfg.PSEUDO_SELECT:
                 cls = pseudo_selection(cls)

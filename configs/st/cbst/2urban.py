@@ -18,7 +18,7 @@ NUM_STEPS = 15000
 NUM_STEPS_STOP = 10000  # Use damping instead of early stopping
 PREHEAT_STEPS = int(NUM_STEPS / 20)
 POWER = 0.9
-EVAL_EVERY=2000
+EVAL_EVERY=1000
 
 
 DS_RATE = 4

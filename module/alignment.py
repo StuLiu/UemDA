@@ -70,21 +70,22 @@ class MMDLoss(nn.Module):
 
 class Aligner:
 
-    def __init__(self, feat_channels=64, class_num=7, ignore_label=255):
+    def __init__(self, feat_channels=64, class_num=7, ignore_label=-1, device=torch.device('cuda:0')):
         # self.mmd = MMDLoss()
         self.feat_channels = feat_channels
         self.class_num = class_num
         self.ignore_label = ignore_label
+        self.device = device
         # statistics of domains
-        self.domain_u_s = torch.zeros([feat_channels], requires_grad=False).cuda()
-        self.domain_u_t = torch.zeros([feat_channels], requires_grad=False).cuda()
-        self.domain_sigma_s = torch.zeros([feat_channels], requires_grad=False).cuda()
-        self.domain_sigma_t = torch.zeros([feat_channels], requires_grad=False).cuda()
+        self.domain_u_s = torch.zeros([feat_channels], requires_grad=False).to(device)
+        self.domain_u_t = torch.zeros([feat_channels], requires_grad=False).to(device)
+        self.domain_sigma_s = torch.zeros([feat_channels], requires_grad=False).to(device)
+        self.domain_sigma_t = torch.zeros([feat_channels], requires_grad=False).to(device)
         # statistics of classes
-        self.class_u_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        self.class_u_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        self.class_u_s = torch.zeros([class_num, feat_channels], requires_grad=False).to(device)
+        self.class_u_t = torch.zeros([class_num, feat_channels], requires_grad=False).to(device)
+        self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).to(device)
+        self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).to(device)
 
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
@@ -118,13 +119,14 @@ class Aligner:
         assert label_s.shape == label_t.shape, 'tensor "label_s" has the same shape as tensor "label_t"'
         assert len(label_s.shape) == 3, 'tensor "label_s" and "feat_t" must have 3 dimensions'
         # compute statistics within the mini-batch
-        feat_s, label_s, feat_t, label_t = feat_s.cuda(), label_s.cuda(), feat_t.cuda(), label_t.cuda()
+        feat_s, label_s = feat_s.to(self.device), label_s.to(self.device),
+        feat_t, label_t = feat_t.to(self.device), label_t.to(self.device)
         label_s = nnf.interpolate(torch.unsqueeze(label_s.float(), dim=1), size=feat_s.shape[-2:])
         label_t = nnf.interpolate(torch.unsqueeze(label_t.float(), dim=1), size=feat_t.shape[-2:])
         label_s = label_s.expand(*feat_s.shape)
         label_t = label_t.expand(*feat_t.shape)
         u_s_list, u_t_list, sigma_s_list, sigma_t_list = [], [], [], []
-        float_zero = torch.tensor(0).float().cuda()
+        float_zero = torch.tensor(0).float().to(self.device)
         for class_i in range(self.class_num):
             class_i_feat_s = torch.where(label_s == class_i, feat_s, float_zero)
             class_i_feat_t = torch.where(label_t == class_i, feat_t, float_zero)
@@ -161,6 +163,7 @@ class Aligner:
 
 
 if __name__ == '__main__':
+    device = torch.device('cuda:0')
     from module.Encoder import Deeplabv2
     import torch.optim as optim
     model = Deeplabv2(dict(
@@ -178,17 +181,17 @@ if __name__ == '__main__':
         ),
         inchannels=2048,
         num_classes=7
-    )).cuda()
+    )).to(device)
     model.train()
     optimizer = optim.SGD(model.parameters(), lr=0.01)
 
     aligner = Aligner(feat_channels=2048, class_num=7)
-    x_s = torch.randn([8, 3, 512, 512]).cuda() * 2
-    x_t = torch.randn([8, 3, 512, 512]).cuda() + 1
-    l_s = torch.randint(0, 7, [8, 512, 512]).long().cuda()
-    l_t = torch.randint(0, 7, [8, 512, 512]).long().cuda()
-    # f_s = torch.randn([8, 128]).cuda() * 1
-    # f_t = torch.randn([8, 128]).cuda()
+    x_s = torch.randn([8, 3, 512, 512]).to(device) * 2
+    x_t = torch.randn([8, 3, 512, 512]).to(device) + 1
+    l_s = torch.randint(0, 7, [8, 512, 512]).long().to(device)
+    l_t = torch.randint(0, 7, [8, 512, 512]).long().to(device)
+    # f_s = torch.randn([8, 128]).to(device) * 1
+    # f_t = torch.randn([8, 128]).to(device)
     _, _, f_s = model(x_s)
     _, _, f_t = model(x_t)
     print(f_s.device)

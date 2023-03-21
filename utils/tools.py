@@ -20,6 +20,15 @@ from math import *
 from scipy import ndimage
 
 
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Unsupported value encountered.')
+
+
 def get_curr_time():
     return f'{time.strftime("%Y%m%d%H%M%S", time.localtime())}'
 
@@ -386,6 +395,11 @@ def count_model_parameters(module, _default_logger=None):
     return cnt
 
 
+if __name__ == '__main__':
+    seed_torch(2333)
+    s = torch.randn((5, 5)).cuda()
+    print(s)
+
 # def get_crf(mask, img, num_classes=7, size=512):
 #     mask = np.transpose(mask, (2, 0, 1))
 #     img = np.ascontiguousarray(img)
@@ -417,9 +431,3 @@ def count_model_parameters(module, _default_logger=None):
 #     # img = Normalize_back(img, flag=opt.dataset)
 #     crf_out = get_crf(mask, img.astype(np.uint8), size=size)
 #     return crf_out
-
-
-if __name__ == '__main__':
-    seed_torch(2333)
-    s = torch.randn((5, 5)).cuda()
-    print(s)

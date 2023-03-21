@@ -30,13 +30,11 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
 parser.add_argument('--align-class', type=int, default=None, help='the first iteration from which align the classes')
-parser.add_argument('--gpu', type=int, default=0, help='device to inference')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 
 
 def main():
-    device = torch.device(f'cuda:{args.gpu}')
     save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, 'pseudo_label')  # in 'save_path'. Save labelIDs, not trainIDs.
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(save_pseudo_label_path, exist_ok=True)
@@ -60,8 +58,8 @@ def main():
         ),
         inchannels=2048,
         num_classes=7
-    )).to(device)
-    aligner = Aligner(feat_channels=2048, class_num=7, ignore_label=-1, device=device)
+    )).cuda()
+    aligner = Aligner(feat_channels=2048, class_num=7, ignore_label=-1)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
@@ -85,10 +83,10 @@ def main():
             lr = adjust_learning_rate(optimizer, i_iter, cfg)
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
-            preds1, preds2, feats = model(images_s.to(device))
+            preds1, preds2, feats = model(images_s.cuda())
 
             # Loss: segmentation + regularization
-            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].to(device), multi=True)
+            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), multi=True)
             loss = loss_seg
 
             loss.backward()
@@ -107,12 +105,12 @@ def main():
                 print('save model ...')
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger, device=device)
+                evaluate(model, cfg, True, ckpt_path, logger)
                 break
             if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger, device=device)
+                evaluate(model, cfg, True, ckpt_path, logger)
                 model.train()
         else:
             # Second Stage
@@ -120,7 +118,7 @@ def main():
             if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, device=device)
+                gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
@@ -144,11 +142,11 @@ def main():
                 # source output
                 batch_s = trainloader_iter.next()
                 images_s, label_s = batch_s[0]
-                images_s, lab_s = images_s.to(device), label_s['cls'].to(device)
+                images_s, lab_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
                 images_t, label_t = batch_t[0]
-                images_t, lab_t = images_t.to(device), label_t['cls'].to(device)
+                images_t, lab_t = images_t.cuda(), label_t['cls'].cuda()
 
                 # model forward
                 # source
@@ -180,11 +178,11 @@ def main():
                     ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
                     torch.save(model.state_dict(), ckpt_path)
                     # evaluate_nj(model, cfg, True, ckpt_path, logger)
-                    evaluate(model, cfg, True, ckpt_path, logger, device=device)
+                    evaluate(model, cfg, True, ckpt_path, logger)
                     model.train()
 
 
-def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=True, device=torch.device('cuda:0')):
+def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=True):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -194,9 +192,9 @@ def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=T
 
     with torch.no_grad():
         for ret, ret_gt in tqdm(evalloader):
-            ret = ret.to(device)
+            ret = ret.cuda()
 
-            cls = pre_slide(model, ret, tta=True, device=device) if slide else model(ret)
+            cls = pre_slide(model, ret, tta=True) if slide else model(ret)
             # cls = pre_slide(model, ret, tta=True)
             # pseudo selection, from -1~6
             if _cfg.PSEUDO_SELECT:

@@ -141,7 +141,7 @@ def main():
             batch = targetloader_iter.next()
             images_t, labels_t = batch[0]
             logits_t1, logits_t2, feat_x16_t = model(images_t.cuda())
-            loss_target = loss_calc([logits_t1, logits_t2], labels_s['cls'].cuda(), multi=True)
+            loss_target = loss_calc([logits_t1, logits_t2], labels_t['cls'].cuda(), multi=True)
 
             loss_seg = cfg.SOURCE_LOSS_WEIGHT * loss_source + cfg.PSEUDO_LOSS_WEIGHT * loss_target
             loss_domain = aligner.align_domain(feat_x16_s, feat_x16_t)

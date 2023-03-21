@@ -41,7 +41,7 @@ def pad_image(img, target_size):
     return padded_img
 
 
-def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False):
+def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False, device=torch.device('cuda:0')):
     image_size = image.shape  # i.e. (1,3,1024,1024)
     overlap = 1 / 2  # 每次滑动的重合率为1/2
 
@@ -49,8 +49,8 @@ def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False):
     tile_rows = int(ceil((image_size[2] - tile_size[0]) / stride) + 1)  # 行滑动步数:(1024-512)/256 + 1 = 3
     tile_cols = int(ceil((image_size[3] - tile_size[1]) / stride) + 1)  # 列滑动步数:(1024-512)/256 + 1 = 3
 
-    full_probs = torch.zeros((1, num_classes, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 (1,7,1024,1024)
-    count_predictions = torch.zeros((1, 1, image_size[2], image_size[3])).cuda()  # 初始化计数矩阵 (1,1,1024,1024)
+    full_probs = torch.zeros((1, num_classes, image_size[2], image_size[3])).to(device)  # 初始化全概率矩阵 (1,7,1024,1024)
+    count_predictions = torch.zeros((1, 1, image_size[2], image_size[3])).to(device)  # 初始化计数矩阵 (1,1,1024,1024)
 
     for row in range(tile_rows):  # row = 0,1,2
         for col in range(tile_cols):  # col = 0,1,2
@@ -80,15 +80,16 @@ def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False):
     return full_probs  # 返回整张图的平均概率 shape(1, 1, 1024,1024)
 
 
-def predict_whole(model, image, tile_size):
+def predict_whole(model, image, tile_size, device=torch.device('cuda:0')):
     image = torch.from_numpy(image)
     interp = nn.Upsample(size=tile_size, mode='bilinear', align_corners=True)
-    x = model(image.cuda())
+    x = model(image.to(device))
     x = interp(x)
     return x
 
 
-def predict_multiscale(model, image, scales=(0.75, 1.0, 1.25, 1.5, 1.75, 2.0), tile_size=(512, 512)):
+def predict_multiscale(model, image, scales=(0.75, 1.0, 1.25, 1.5, 1.75, 2.0), tile_size=(512, 512),
+                       device=torch.device('cuda:0')):
     """
     Predict an image by looking at it with different scales.
         We choose the "predict_whole_img" for the image with less than the original input size,
@@ -97,7 +98,7 @@ def predict_multiscale(model, image, scales=(0.75, 1.0, 1.25, 1.5, 1.75, 2.0), t
     image_size = image.shape
     image = image.data.cpu().numpy()
 
-    full_probs = torch.zeros((1, 1, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 shape(1024,2048,19)
+    full_probs = torch.zeros((1, 1, image_size[2], image_size[3])).to(device)  # 初始化全概率矩阵 shape(1024,2048,19)
 
     for scale in scales:
         scale = float(scale)
@@ -320,7 +321,8 @@ COLOR_MAP = OrderedDict(
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 
-def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None, logger=None):
+def generate_pseudo(model, target_loader, save_dir, n_class=7,
+                    pseudo_dict=None, logger=None, device=torch.device('cuda:0')):
     if pseudo_dict is None:
         pseudo_dict = dict()
     logger.info('Start generate pseudo labels: %s' % save_dir)
@@ -329,7 +331,7 @@ def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None,
     model.eval()
     cls_thresh = np.ones(n_class) * 0.9
     for image, labels in tqdm(target_loader):
-        out = model(image.cuda())
+        out = model(image.to(device))
         logits = out[0] if isinstance(out, tuple) else out
         max_items = logits.max(dim=1)
         label_pred = max_items[1].data.cpu().numpy()
@@ -397,7 +399,7 @@ def count_model_parameters(module, _default_logger=None):
 
 if __name__ == '__main__':
     seed_torch(2333)
-    s = torch.randn((5, 5)).cuda()
+    s = torch.randn((5, 5)).to(torch.device('cuda:0'))
     print(s)
 
 # def get_crf(mask, img, num_classes=7, size=512):

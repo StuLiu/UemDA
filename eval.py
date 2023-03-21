@@ -7,7 +7,7 @@ from module.viz import VisualizeSegmm
 
 
 
-def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True):
+def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, device=torch.device('cuda')):
     #torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
     #torch.backends.cudnn.enabled = False
@@ -26,8 +26,8 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
-            ret = ret.to(torch.device('cuda'))
-            cls = pre_slide(model, ret, tta=False) if slide else model(ret)
+            ret = ret.to(device)
+            cls = pre_slide(model, ret, tta=False, device=device) if slide else model(ret)
             cls = cls.argmax(dim=1).cpu().numpy()
 
             cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)

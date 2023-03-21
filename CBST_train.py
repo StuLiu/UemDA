@@ -27,17 +27,15 @@ cfg = import_config(args.config_path)
 def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     logger = get_console_file_logger(name='CBST', logdir=cfg.SNAPSHOT_DIR)
+    logger.info(os.path.basename(__file__))
     cudnn.enabled = True
 
     save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, 'pseudo_label')  # in 'save_path'. Save labelIDs, not trainIDs.
     save_stats_path = osp.join(cfg.SNAPSHOT_DIR, 'stats') # in 'save_path'
     
-    if not os.path.exists(cfg.SNAPSHOT_DIR):
-        os.makedirs(cfg.SNAPSHOT_DIR)
-    if not os.path.exists(save_pseudo_label_path):
-        os.makedirs(save_pseudo_label_path)
-    if not os.path.exists(save_stats_path):
-        os.makedirs(save_stats_path)
+    os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
+    os.makedirs(save_pseudo_label_path, exist_ok=True)
+    os.makedirs(save_stats_path, exist_ok=True)
     
 
     model = Deeplabv2(dict(
@@ -184,11 +182,8 @@ def val(model, targetloader, save_round_eval_path, cfg, slide=True):
     #viz_op = er.viz.VisualizeSegmm(save_pred_vis_path, palette)
     # metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
 
-
-    if not os.path.exists(save_prob_path):
-        os.makedirs(save_prob_path)
-    if not os.path.exists(save_pred_path):
-         os.makedirs(save_pred_path)
+    os.makedirs(save_prob_path, exist_ok=True)
+    os.makedirs(save_pred_path, exist_ok=True)
 
     # saving output data
     conf_dict = {k: [] for k in range(cfg.NUM_CLASSES)}

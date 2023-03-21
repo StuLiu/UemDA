@@ -29,7 +29,7 @@ palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 # CUDA_VISIBLE_DEVICES=3 python CBST_train_ga.py --config_path st.cbst_ga.2urban
 parser = argparse.ArgumentParser(description='Run CBST_ga methods.')
 
-parser.add_argument('--config_path', type=str, help='config path', default='st.cbst_ga.2urban')
+parser.add_argument('--config-path', type=str, help='config path', default='st.cbst_ga.2urban')
 parser.add_argument('--align-class', type=int, default=None, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -38,6 +38,7 @@ cfg = import_config(args.config_path)
 def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     logger = get_console_file_logger(name='CBST_ga', logdir=cfg.SNAPSHOT_DIR)
+    logger.info(os.path.basename(__file__))
     logger.info(args.align_class)
     cudnn.enabled = True
 

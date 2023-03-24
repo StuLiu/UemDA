@@ -117,10 +117,15 @@ class Aligner:
         for class_i in range(self.class_num):
             class_i_feat = torch.where(label == class_i, feat, float_zero)
             class_i_num = (label == class_i).sum() / self.feat_channels
+            class_i_sum = torch.sum(class_i_feat, dim=[0, 2, 3], keepdim=False).unsqueeze(dim=0)    # [1, channel_num]
             if class_i_num <= 0:
-                self.logger.info(f"class {class_i_num} has no elements")
-
-            u_list.append(torch.sum(class_i_feat, dim=[0, 2, 3], keepdim=False).unsqueeze(dim=0) / class_i_num)
+                # self.logger.info(f"class {class_i} has no elements")
+                if is_source:
+                    u_list.append(self.class_u_s[class_i: class_i + 1, :].detach())
+                else:
+                    u_list.append(self.class_u_t[class_i: class_i + 1, :].detach())
+            else:
+                u_list.append(class_i_sum / class_i_num)
         u_s = torch.cat(u_list, dim=0)  # (class_num, feat_channels)
         if is_source:
             self.class_u_s = self.ema(self.class_u_s.detach(), u_s, decay=0.99)
@@ -170,6 +175,7 @@ class Aligner:
         self.update_class_prototypes(feat_s, label_s, is_source=True)
         self.update_class_prototypes(feat_t, label_t, is_source=False)
         return nnf.mse_loss(self.class_u_t, self.class_u_s.detach())
+        # return -1 * torch.mean(nnf.cosine_similarity(self.class_u_t, self.class_u_s.detach()))
 
     def align_category_0(self, feat_s, label_s, feat_t, label_t):
         """ Compute the loss for discrepancy between class distribution.

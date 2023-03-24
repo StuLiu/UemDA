@@ -147,9 +147,7 @@ def main():
                 loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t)
-                loss_class = 0#aligner.align_class(feat_s, label_s, feat_t, label_t)
-                # loss_class = aligner.align_category(feat_s, label_s['cls'], feat_t, label_t['cls']) \
-                #     if i_iter >= (args.align_class if args.align_class else cfg.ALIGN_CLASS) else 0
+                loss_class = aligner.align_class(feat_s, label_s, feat_t, label_t)
                 loss = loss_seg + loss_pseudo + loss_domain + loss_class
 
                 optimizer.zero_grad()
@@ -164,17 +162,17 @@ def main():
         if i_iter % 50 == 0:
             logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
-        if i_iter >= cfg.NUM_STEPS_STOP - 1:
-            print('save model ...')
-            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS) + '.pth')
-            torch.save(model.state_dict(), ckpt_path)
-            evaluate(model, cfg, True, ckpt_path, logger)
-            break
-        if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
-            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
+        if (i_iter + 1) % cfg.EVAL_EVERY == 0:
+            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
             model.train()
+        elif (i_iter + 1) >= cfg.NUM_STEPS_STOP:
+            print('save model ...')
+            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')
+            torch.save(model.state_dict(), ckpt_path)
+            evaluate(model, cfg, True, ckpt_path, logger)
+            break
 
 
 def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=True):

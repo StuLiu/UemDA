@@ -29,9 +29,9 @@ from module.alignment import Aligner
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
-parser.add_argument('--align-class', type=int, default=None, help='the first iteration from which align the classes')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
+assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
 
 
 def main():
@@ -39,8 +39,10 @@ def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(save_pseudo_label_path, exist_ok=True)
 
-    logger = get_console_file_logger(name='MY', logdir=cfg.SNAPSHOT_DIR)
+    logger = get_console_file_logger(name='GAST', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
+    logger.info(cfg)
+
     cudnn.enabled = True
     model = Deeplabv2(dict(
         backbone=dict(
@@ -59,15 +61,15 @@ def main():
         inchannels=2048,
         num_classes=7
     )).cuda()
-    aligner = Aligner(feat_channels=2048, class_num=7, ignore_label=-1)
+    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
     # eval loader (target)
     evalloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
     # target loader
-    targetloader = None
-    targetloader_iter = None
+    targetloader = LoveDALoader(cfg.TARGET_DATA_CONFIG)
+    targetloader_iter = Iterator(targetloader)
 
     epochs = cfg.NUM_STEPS_STOP / len(trainloader)
     logger.info('epochs ~= %.3f' % epochs)
@@ -77,45 +79,40 @@ def main():
     optimizer.zero_grad()
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
+        lr = adjust_learning_rate(optimizer, i_iter, cfg)
         if i_iter < cfg.FIRST_STAGE_STEP:
             # Train with Source
             optimizer.zero_grad()
-            lr = adjust_learning_rate(optimizer, i_iter, cfg)
+
+            # source infer
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
-            preds1, preds2, feats = model(images_s.cuda())
+            pred_s1, pred_s2, feat_s = model(images_s.cuda())
 
-            # Loss: segmentation + regularization
-            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), multi=True)
-            loss = loss_seg
+            # target infer
+            batch = targetloader_iter.next()
+            images_t, _ = batch[0]
+            _, _, feat_t = model(images_t.cuda())
+
+            # Loss: source segmentation + global alignment
+            loss_seg = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
+            loss_domain = aligner.align_domain(feat_s, feat_t)
+            loss = loss_seg + loss_domain
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
-
-            if i_iter % 50 == 0:
-                logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
-                text = 'iter = %d, total = %.3f, seg = %.3f, ' \
-                       'lr = %.3f' % (
-                           i_iter, loss, loss_seg, lr)
-                logger.info(text)
-
-            if i_iter >= cfg.NUM_STEPS_STOP - 1:
-                print('save model ...')
-                ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS) + '.pth')
-                torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
-                break
-            if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
-                ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
-                torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
-                model.train()
+            log_loss = f'iter={i_iter}, loss={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+                       f'loss_domain={loss_domain}, lr={lr}'
         else:
+            log_loss = ''
             # Second Stage
+            if i_iter == (cfg.FIRST_STAGE_STEP):
+                logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
+
             # Generate pseudo label
-            if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
+            if i_iter == (cfg.FIRST_STAGE_STEP) or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
                 gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path)
@@ -126,27 +123,19 @@ def main():
                 targetloader = LoveDALoader(target_config)
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
-            if i_iter == (cfg.FIRST_STAGE_STEP + 1):
-                logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
-            # if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
-            #     target_config = cfg.SOURCE_DATA_CONFIG
-            #     logger.info(target_config)
-            #     targetloader = LoveDALoader(target_config)
-            #     targetloader_iter = Iterator(targetloader)
             torch.cuda.synchronize()
-            # Second Stage
-            if i_iter < cfg.NUM_STEPS_STOP and targetloader is not None:
-                model.train()
-                lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
+            # Train with source and target domain
+            if i_iter < cfg.NUM_STEPS_STOP:
+                model.train()
                 # source output
                 batch_s = trainloader_iter.next()
                 images_s, label_s = batch_s[0]
-                images_s, lab_s = images_s.cuda(), label_s['cls'].cuda()
+                images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
                 images_t, label_t = batch_t[0]
-                images_t, lab_t = images_t.cuda(), label_t['cls'].cuda()
+                images_t, label_t = images_t.cuda(), label_t['cls'].cuda()
 
                 # model forward
                 # source
@@ -155,11 +144,12 @@ def main():
                 pred_t1, pred_t2, feat_t = model(images_t)
 
                 # loss
-                loss_seg = loss_calc([pred_s1, pred_s2], lab_s, multi=True)
-                loss_pseudo = loss_calc([pred_t1, pred_t2], lab_t, multi=True)
+                loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
+                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t)
-                loss_class = aligner.align_category(feat_s, label_s['cls'], feat_t, label_t['cls']) \
-                    if i_iter >= (args.align_class if args.align_class else cfg.ALIGN_CLASS) else 0
+                loss_class = 0#aligner.align_class(feat_s, label_s, feat_t, label_t)
+                # loss_class = aligner.align_category(feat_s, label_s['cls'], feat_t, label_t['cls']) \
+                #     if i_iter >= (args.align_class if args.align_class else cfg.ALIGN_CLASS) else 0
                 loss = loss_seg + loss_pseudo + loss_domain + loss_class
 
                 optimizer.zero_grad()
@@ -167,19 +157,24 @@ def main():
                 clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                           max_norm=35, norm_type=2)
                 optimizer.step()
+                log_loss = f'iter={i_iter:d}, total={loss:.3f}, seg={loss_seg:.3f}, pseudo={loss_pseudo:.3f},' \
+                           f'domain={loss_domain}, class={loss_class}, lr = {lr:.3f}'
 
-                if i_iter % 50 == 0:
-                    logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
-                    text = f'iter={i_iter:d}, total={loss:.3f}, seg={loss_seg:.3f}, pseudo={loss_pseudo:.3f},' \
-                           f'domain={loss_domain:.3f}, class={loss_class:.3f}, lr = {lr:.3f}'
-                    logger.info(text)
-
-                if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
-                    ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
-                    torch.save(model.state_dict(), ckpt_path)
-                    # evaluate_nj(model, cfg, True, ckpt_path, logger)
-                    evaluate(model, cfg, True, ckpt_path, logger)
-                    model.train()
+        # logging training process, evaluating and saving
+        if i_iter % 50 == 0:
+            logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
+            logger.info(log_loss)
+        if i_iter >= cfg.NUM_STEPS_STOP - 1:
+            print('save model ...')
+            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS) + '.pth')
+            torch.save(model.state_dict(), ckpt_path)
+            evaluate(model, cfg, True, ckpt_path, logger)
+            break
+        if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
+            ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
+            torch.save(model.state_dict(), ckpt_path)
+            evaluate(model, cfg, True, ckpt_path, logger)
+            model.train()
 
 
 def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=True):

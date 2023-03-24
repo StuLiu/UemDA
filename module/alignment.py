@@ -39,21 +39,12 @@ class MMDLoss(nn.Module):
         return sum(kernel_val)
 
     @staticmethod
-    def forward_linear(f_of_X, f_of_Y):
-        delta = f_of_X.float().mean(0) - f_of_Y.float().mean(0)
+    def forward_linear(f_of_x, f_of_y):
+        delta = f_of_x.float().mean(0) - f_of_y.float().mean(0)
         loss = delta.dot(delta.T)
         return loss
 
     def forward(self, source, target):
-        """
-
-        Args:
-            source: features from source domain, shape as [batch_size, 1]
-            target: features from target domain, shape as [batch_size, 1]
-
-        Returns:
-
-        """
         if self.kernel_type == 'linear':
             return self.forward_linear(source, target)
         elif self.kernel_type == 'rbf':
@@ -68,25 +59,84 @@ class MMDLoss(nn.Module):
             return loss
 
 
+class CoralLoss(nn.Module):
+
+    def __init__(self, is_sqrt=False):
+        super().__init__()
+        self.is_sqrt = is_sqrt
+
+    def forward(self, source, target):
+        d = source.size(1)
+        ns, nt = source.size(0), target.size(0)
+
+        # source covariance
+        tmp_s = torch.ones((1, ns)).cuda() @ source
+        cs = (source.t() @ source - (tmp_s.t() @ tmp_s) / ns) / (ns - 1)
+
+        # target covariance
+        tmp_t = torch.ones((1, nt)).cuda() @ target
+        ct = (target.t() @ target - (tmp_t.t() @ tmp_t) / nt) / (nt - 1)
+
+        # frobenius norm
+        loss = (cs - ct).pow(2).sum()
+        loss = loss.sqrt() if self.is_sqrt else loss
+        loss = loss / (4 * d * d)
+
+        return loss
+
+
 class Aligner:
 
-    def __init__(self, feat_channels=64, class_num=7, ignore_label=-1):
+    def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1):
         # self.mmd = MMDLoss()
         self.feat_channels = feat_channels
         self.class_num = class_num
         self.ignore_label = ignore_label
+        self.logger = logger
+
         # statistics of domains
         self.domain_u_s = torch.zeros([feat_channels], requires_grad=False).cuda()
         self.domain_u_t = torch.zeros([feat_channels], requires_grad=False).cuda()
         self.domain_sigma_s = torch.zeros([feat_channels], requires_grad=False).cuda()
         self.domain_sigma_t = torch.zeros([feat_channels], requires_grad=False).cuda()
+
         # statistics of classes
         self.class_u_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
         self.class_u_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        # self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        # self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+
+        self.coral = CoralLoss()
+
+    def update_class_prototypes(self, feat, label, is_source=True):
+        feat, label = feat.cuda(), label.cuda()
+        label = nnf.interpolate(torch.unsqueeze(label.float(), dim=1), size=feat.shape[-2:])
+        label = label.expand(*feat.shape)
+        u_list = []
+        float_zero = torch.tensor(0).float().cuda()
+        for class_i in range(self.class_num):
+            class_i_feat = torch.where(label == class_i, feat, float_zero)
+            class_i_num = (label == class_i).sum() / self.feat_channels
+            if class_i_num <= 0:
+                self.logger.info(f"class {class_i_num} has no elements")
+
+            u_list.append(torch.sum(class_i_feat, dim=[0, 2, 3], keepdim=False).unsqueeze(dim=0) / class_i_num)
+        u_s = torch.cat(u_list, dim=0)  # (class_num, feat_channels)
+        if is_source:
+            self.class_u_s = self.ema(self.class_u_s.detach(), u_s, decay=0.99)
+        else:
+            self.class_u_t = self.ema(self.class_u_t.detach(), u_s, decay=0.99)
+        return u_s
 
     def align_domain(self, feat_s, feat_t):
+        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
+        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
+        # assert len(label_s.shape) == 3, 'tensor "label_s" must have 3 dimensions'
+        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        return self.coral(feat_s, feat_t)
+
+    def align_domain_0(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         u_s = torch.mean(feat_s, dim=[0, 2, 3], keepdim=False)  # (feat_channels,)
@@ -101,7 +151,27 @@ class Aligner:
         # compute loss and return
         return nnf.mse_loss(u_s, u_t) + nnf.mse_loss(sigma_s, sigma_t)
 
-    def align_category(self, feat_s, label_s, feat_t, label_t):
+    def align_class(self, feat_s, label_s, feat_t, label_t):
+        """ Compute the loss for discrepancy between class distribution.
+
+        Args:
+            feat_s:  features from source, shape as (batch_size, feature_channels, height, width)
+            label_s: labels from source  , shape as (batch_size, height, width)
+            feat_t:  features from source, shape as (batch_size, feature_channels, height, width)
+            label_t: pseudo labels from target, shape as (batch_size, height, width)
+
+        Returns:
+            loss for discrepancy between class distribution.
+        """
+        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
+        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
+        assert label_s.shape == label_t.shape, 'tensor "label_s" has the same shape as tensor "label_t"'
+        assert len(label_s.shape) == 3, 'tensor "label_s" and "feat_t" must have 3 dimensions'
+        self.update_class_prototypes(feat_s, label_s, is_source=True)
+        self.update_class_prototypes(feat_t, label_t, is_source=False)
+        return nnf.mse_loss(self.class_u_t, self.class_u_s.detach())
+
+    def align_category_0(self, feat_s, label_s, feat_t, label_t):
         """ Compute the loss for discrepancy between class distribution.
 
         Args:
@@ -164,6 +234,7 @@ class Aligner:
 if __name__ == '__main__':
     from module.Encoder import Deeplabv2
     import torch.optim as optim
+    import logging
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',
@@ -183,26 +254,32 @@ if __name__ == '__main__':
     model.train()
     optimizer = optim.SGD(model.parameters(), lr=0.01)
 
-    aligner = Aligner(feat_channels=2048, class_num=7)
-    x_s = torch.randn([8, 3, 512, 512]).cuda() * 2
+    aligner = Aligner(logger=logging.getLogger(''), feat_channels=2048, class_num=7)
+    x_s = torch.randn([8, 3, 512, 512]).cuda() * 100
     x_t = torch.randn([8, 3, 512, 512]).cuda() + 1
     l_s = torch.randint(0, 7, [8, 512, 512]).long().cuda()
     l_t = torch.randint(0, 7, [8, 512, 512]).long().cuda()
-    # f_s = torch.randn([8, 128]).cuda() * 1
-    # f_t = torch.randn([8, 128]).cuda()
-    _, _, f_s = model(x_s)
-    _, _, f_t = model(x_t)
-    print(f_s.device)
-    loss_domain = aligner.align_domain(f_s, f_t)
-    loss_class = aligner.align_category(f_s, l_s, f_t, l_t)
-    optimizer.zero_grad()
-    # loss_domain.backward()
-    loss_class.backward()
-    for name, param in model.named_parameters():
-        print(name, param.requires_grad)
-        print(param.grad)
-        break
-    #
-    # # print(aligner.align_domain(f_s, f_t))
-    # print(aligner.align_category(f_s, l_s, f_t, l_t))
-    # pass
+    zero_count = (l_s == 0).sum() / 16 / 16
+
+    for i in range(10):
+        _, _, f_s = model(x_s)
+        _, _, f_t = model(x_t)
+        loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
+        optimizer.zero_grad()
+        loss_class.backward()
+        for name, param in model.named_parameters():
+            print(name, param.requires_grad)
+            print(param.grad[0][0][0])
+            break
+
+    for i in range(10):
+        _, _, f_s = model(x_s)
+        _, _, f_t = model(x_t)
+        loss_domain = aligner.align_domain(f_s, f_t)
+        optimizer.zero_grad()
+        loss_domain.backward()
+        for name, param in model.named_parameters():
+            print(name, param.requires_grad)
+            print(param.grad[0][0][0])
+            break
+    print('end')

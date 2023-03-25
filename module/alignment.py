@@ -85,6 +85,29 @@ class CoralLoss(nn.Module):
         return loss
 
 
+class CoralLoss2(nn.Module):
+
+    def __init__(self, is_sqrt=False):
+        super().__init__()
+        self.is_sqrt = is_sqrt
+
+    def forward(self, source, target):
+        d = source.data.shape[1]
+        ns, nt = source.data.shape[0], target.data.shape[0]
+        # source covariance
+        xm = torch.mean(source, 0, keepdim=True) - source
+        xc = xm.t() @ xm / (ns - 1)
+
+        # target covariance
+        xmt = torch.mean(target, 0, keepdim=True) - target
+        xct = xmt.t() @ xmt / (nt - 1)
+
+        # frobenius norm between source and target
+        loss = torch.sum(torch.mul((xc - xct), (xc - xct)))
+        loss = (loss.sqrt() if self.is_sqrt else loss) / (4 * d * d)
+        return loss
+
+
 class Aligner:
 
     def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1):
@@ -278,10 +301,13 @@ if __name__ == '__main__':
             print(param.grad[0][0][0])
             break
 
+    coral1 = CoralLoss(False)
+    coral2 = CoralLoss2(False)
     for i in range(10):
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_domain = aligner.align_domain(f_s, f_t)
+        print(coral1(f_s, f_t) - coral2(f_s, f_t))
         optimizer.zero_grad()
         loss_domain.backward()
         for name, param in model.named_parameters():

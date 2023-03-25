@@ -108,11 +108,11 @@ def main():
         else:
             log_loss = ''
             # Second Stage
-            if i_iter == (cfg.FIRST_STAGE_STEP):
+            if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
 
             # Generate pseudo label
-            if i_iter == (cfg.FIRST_STAGE_STEP) or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
+            if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
                 gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path)
@@ -159,7 +159,7 @@ def main():
                            f'domain={loss_domain}, class={loss_class}, lr = {lr:.3f}'
 
         # logging training process, evaluating and saving
-        if i_iter % 50 == 0:
+        if i_iter == 0 or (i_iter + 1) % 50 == 0:
             logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
         if (i_iter + 1) % cfg.EVAL_EVERY == 0:

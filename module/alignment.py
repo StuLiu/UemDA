@@ -34,7 +34,7 @@ class MMDLoss(nn.Module):
         else:
             bandwidth = torch.sum(l2_distance.data) / (n_samples ** 2 - n_samples)
         bandwidth /= kernel_mul ** (kernel_num // 2)
-        bandwidth_list = [bandwidth * (kernel_mul ** i) for i in range(kernel_num)]
+        bandwidth_list = [bandwidth * (kernel_mul ** _i) for _i in range(kernel_num)]
         kernel_val = [torch.exp(-l2_distance / bandwidth_temp) for bandwidth_temp in bandwidth_list]
         return sum(kernel_val)
 
@@ -62,6 +62,11 @@ class MMDLoss(nn.Module):
 class CoralLoss(nn.Module):
 
     def __init__(self, is_sqrt=False):
+        """
+        Coral loss implement for eq(1, 2, 3) in https://arxiv.org/pdf/1607.01719.pdf
+        Args:
+            is_sqrt:
+        """
         super().__init__()
         self.is_sqrt = is_sqrt
 
@@ -88,6 +93,11 @@ class CoralLoss(nn.Module):
 class CoralLoss2(nn.Module):
 
     def __init__(self, is_sqrt=False):
+        """
+        Coral loss implement for eq(1) in https://arxiv.org/pdf/1607.01719.pdf
+        Args:
+            is_sqrt:
+        """
         super().__init__()
         self.is_sqrt = is_sqrt
 
@@ -108,6 +118,33 @@ class CoralLoss2(nn.Module):
         return loss
 
 
+class DownscaleLabel(nn.Module):
+    def __init__(self, scale_factor=16, n_classes=7, ignore_index=-1, min_ratio=0.75):
+        super().__init__()
+        assert scale_factor > 1
+        self.scale_factor = scale_factor
+        self.n_classes = n_classes
+        self.ignore_index = ignore_index
+        self.min_ratio = min_ratio
+
+    def forward(self, label):
+        label = label.clone()
+        if len(label.shape) == 3:
+            label = label.unsqueeze(dim=1)
+        bs, orig_c, orig_h, orig_w = label.shape
+        assert orig_c == 1
+        trg_h, trg_w = orig_h // self.scale_factor, orig_w // self.scale_factor
+        label[label == self.ignore_index] = self.n_classes
+        out = nnf.one_hot(label.squeeze(1), num_classes=self.n_classes + 1).permute(0, 3, 1, 2)
+        assert list(out.shape) == [bs, self.n_classes + 1, orig_h, orig_w], out.shape
+        out = nnf.avg_pool2d(out.float(), kernel_size=self.scale_factor)
+        max_ratio, out = torch.max(out, dim=1, keepdim=True)
+        out[out == self.n_classes] = self.ignore_index
+        out[max_ratio < self.min_ratio] = self.ignore_index
+        assert list(out.shape) == [bs, 1, trg_h, trg_w], out.shape
+        return out
+
+
 class Aligner:
 
     def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1):
@@ -126,14 +163,19 @@ class Aligner:
         # statistics of classes
         self.class_u_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
         self.class_u_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        # self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
-        # self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        self.class_sigma_s = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         self.coral = CoralLoss()
+        self.downscale_gt = DownscaleLabel(scale_factor=16,
+                                           n_classes=7,
+                                           ignore_index=-1,
+                                           min_ratio=0.75)
 
     def update_class_prototypes(self, feat, label, is_source=True):
         feat, label = feat.cuda(), label.cuda()
-        label = nnf.interpolate(torch.unsqueeze(label.float(), dim=1), size=feat.shape[-2:])
+        # label = nnf.interpolate(torch.unsqueeze(label.float(), dim=1), size=feat.shape[-2:])
+        label = self.downscale_gt(label)
         label = label.expand(*feat.shape)
         u_list = []
         float_zero = torch.tensor(0).float().cuda()
@@ -256,7 +298,8 @@ class Aligner:
         new_average = (1.0 - decay) * curr + decay * history
         return new_average
 
-    def display(self):
+    def show(self, save_path=None, display=True):
+
         pass
 
 
@@ -284,13 +327,21 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=0.01)
 
     aligner = Aligner(logger=logging.getLogger(''), feat_channels=2048, class_num=7)
-    x_s = torch.randn([8, 3, 512, 512]).cuda() * 100
-    x_t = torch.randn([8, 3, 512, 512]).cuda() + 1
-    l_s = torch.randint(0, 7, [8, 512, 512]).long().cuda()
-    l_t = torch.randint(0, 7, [8, 512, 512]).long().cuda()
-    zero_count = (l_s == 0).sum() / 16 / 16
+    def rand_x_l():
+        x_s = torch.randn([8, 3, 512, 512]).cuda() * 255
+        x_t = torch.randn([8, 3, 512, 512]).cuda() * 255
+        l_s = torch.randint(0, 1, [8, 512, 512]).long().cuda()
+        l_t = torch.randint(1, 2, [8, 512, 512]).long().cuda()
+        return x_s, x_t, l_s, l_t
+    # x_s = torch.randn([8, 3, 512, 512]).cuda() * 255
+    # x_t = torch.randn([8, 3, 512, 512]).cuda() * 255
+    # l_s = torch.randint(0, 1, [8, 512, 512]).long().cuda()
+    # l_t = torch.randint(1, 2, [8, 512, 512]).long().cuda()
+    # x_s, x_t, l_s, l_t = rand_x_l()
+    # zero_count = (l_s == 0).sum() / 16 / 16
 
-    for i in range(10):
+    for i in range(2):
+        x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
@@ -300,18 +351,36 @@ if __name__ == '__main__':
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
             break
+    print('grad of loss class')
+    print('=========================================================')
 
-    coral1 = CoralLoss(False)
-    coral2 = CoralLoss2(False)
-    for i in range(10):
+    for i in range(2):
+        x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_domain = aligner.align_domain(f_s, f_t)
-        print(coral1(f_s, f_t) - coral2(f_s, f_t))
         optimizer.zero_grad()
         loss_domain.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
             break
+    print('grad of loss domain')
+    print('=========================================================')
+
+    from utils.tools import loss_calc
+    for i in range(2):
+        x_s, x_t, l_s, l_t = rand_x_l()
+        os1, os2, f_s = model(x_s)
+        ot1, ot2, f_t = model(x_t)
+        loss_seg = loss_calc([os1, os2], l_s, multi=True)
+        loss_seg += loss_calc([ot1, ot2], l_t, multi=True)
+        optimizer.zero_grad()
+        loss_seg.backward()
+        for name, param in model.named_parameters():
+            print(name, param.requires_grad)
+            print(param.grad[0][0][0])
+            break
+    print('grad of loss seg')
+    print('=========================================================')
     print('end')

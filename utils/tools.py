@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as tnf
 import numpy as np
-import ttach as tta
+import ttach
 import ever as er
 # import pydensecrf.densecrf as dcrf # require py36
 
@@ -113,10 +113,10 @@ def predict_multiscale(model, image, scales=(0.75, 1.0, 1.25, 1.5, 1.75, 2.0), t
 
 
 def tta_predict(model, img):
-    tta_transforms = tta.Compose(
+    tta_transforms = ttach.Compose(
         [
-            tta.HorizontalFlip(),
-            tta.Rotate90(angles=[0, 90, 180, 270]),
+            ttach.HorizontalFlip(),
+            ttach.Rotate90(angles=[0, 90, 180, 270]),
         ])
 
     xs = []
@@ -153,13 +153,20 @@ def mixup(s_img, s_lab, t_img, t_lab):
     return new_s_img, new_s_lab, new_t_img, new_t_lab
 
 
-def import_config(config_name, prefix='configs'):
+def import_config(config_name, prefix='configs', copy=True):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
     m.SNAPSHOT_DIR += get_curr_time()
-    os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
-    shutil.copy(cfg_path.replace('.', '/') + '.py', os.path.join(m.SNAPSHOT_DIR, 'config.py'))
+    if copy:
+        os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
+        shutil.copy(cfg_path.replace('.', '/') + '.py', os.path.join(m.SNAPSHOT_DIR, 'config.py'))
     return m
+
+
+def portion_warmup(i_iter, start_iter, end_iter):
+    if i_iter < start_iter:
+        return 0
+    return 2.0 / (1.0 + exp(-10.0 * float(i_iter - start_iter) / float(end_iter - start_iter))) - 1
 
 
 def lr_poly(base_lr, i_iter, max_iter, power):
@@ -196,9 +203,9 @@ def get_console_file_logger(name, level=logging.INFO, logdir='./baseline'):
     logger = logging.Logger(name)
     logger.setLevel(level=level)
     logger.handlers = []
-    BASIC_FORMAT = "%(asctime)s, %(levelname)s:%(name)s:%(message)s"
-    DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-    formatter = logging.Formatter(BASIC_FORMAT, DATE_FORMAT)
+    basic_format = "%(asctime)s, %(levelname)s:%(name)s:%(message)s"
+    date_format = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter(basic_format, date_format)
     chlr = logging.StreamHandler()
     chlr.setFormatter(formatter)
     chlr.setLevel(level=level)
@@ -222,8 +229,8 @@ def loss_calc(pred, label, reduction='mean', multi=False):
         for p in pred:
             if p.size()[-2:] != label.size()[-2:]:
                 p = tnf.interpolate(p, size=label.size()[-2:], mode='bilinear', align_corners=True)
-            l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
-            loss += l
+            # l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
+            loss += tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
             num += 1
         loss = loss / num
     else:
@@ -300,11 +307,10 @@ def ias_thresh(conf_dict, n_class, alpha, w=None, gamma=1.0):
     # threshold
     cls_thresh = np.ones(n_class, dtype=np.float32)
     for idx_cls in np.arange(0, n_class):
-        if conf_dict[idx_cls] != None:
+        if conf_dict[idx_cls] is not None:
             arr = np.array(conf_dict[idx_cls])
             cls_thresh[idx_cls] = np.percentile(arr, 100 * (1 - alpha * w[idx_cls] ** gamma))
     return cls_thresh
-
 
 
 COLOR_MAP = OrderedDict(
@@ -351,7 +357,7 @@ def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None,
             logit = np_logits[_i].transpose(1, 2, 0)
             label = np.argmax(logit, axis=2)
             logit_amax = np.amax(logit, axis=2)
-            label_cls_thresh = np.apply_along_axis(lambda x: [cls_thresh[e] for e in x], 1, label)
+            label_cls_thresh = np.apply_along_axis(lambda x: [cls_thresh[_e] for _e in x], 1, label)
             ignore_index = logit_amax < label_cls_thresh
             viz_op(label, fname)
             label += 1
@@ -399,6 +405,8 @@ if __name__ == '__main__':
     seed_torch(2333)
     s = torch.randn((5, 5)).cuda()
     print(s)
+    for i in range(1000):
+        print(portion_warmup(i_iter=i, start_iter=0, end_iter=1000))
 
 # def get_crf(mask, img, num_classes=7, size=512):
 #     mask = np.transpose(mask, (2, 0, 1))

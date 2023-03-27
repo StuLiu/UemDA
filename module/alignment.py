@@ -59,7 +59,7 @@ class MMDLoss(nn.Module):
             return loss
 
 
-class CoralLoss(nn.Module):
+class CoralLoss2(nn.Module):
 
     def __init__(self, is_sqrt=False):
         """
@@ -90,7 +90,7 @@ class CoralLoss(nn.Module):
         return loss
 
 
-class CoralLoss2(nn.Module):
+class CoralLoss(nn.Module):
 
     def __init__(self, is_sqrt=False):
         """
@@ -119,6 +119,7 @@ class CoralLoss2(nn.Module):
 
 
 class DownscaleLabel(nn.Module):
+
     def __init__(self, scale_factor=16, n_classes=7, ignore_index=-1, min_ratio=0.75):
         super().__init__()
         assert scale_factor > 1
@@ -167,6 +168,7 @@ class Aligner:
         self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         self.coral = CoralLoss()
+        self.mmd = MMDLoss(kernel_type='rbf')
         self.downscale_gt = DownscaleLabel(scale_factor=16,
                                            n_classes=7,
                                            ignore_index=-1,
@@ -201,7 +203,13 @@ class Aligner:
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        # assert len(label_s.shape) == 3, 'tensor "label_s" must have 3 dimensions'
+        feat_s = torch.mean(feat_s, dim=[2, 3])
+        feat_t = torch.mean(feat_t, dim=[2, 3])
+        return self.mmd(feat_s, feat_t)
+
+    def align_domain_all_example(self, feat_s, feat_t):
+        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
+        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
@@ -327,12 +335,12 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=0.01)
 
     aligner = Aligner(logger=logging.getLogger(''), feat_channels=2048, class_num=7)
+
     def rand_x_l():
-        x_s = torch.randn([8, 3, 512, 512]).cuda() * 255
-        x_t = torch.randn([8, 3, 512, 512]).cuda() * 255
-        l_s = torch.randint(0, 1, [8, 512, 512]).long().cuda()
-        l_t = torch.randint(1, 2, [8, 512, 512]).long().cuda()
-        return x_s, x_t, l_s, l_t
+        return torch.randn([8, 3, 512, 512]).cuda() * 255, \
+               torch.randn([8, 3, 512, 512]).cuda() * 255, \
+               torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
+               torch.randint(1, 2, [8, 512, 512]).long().cuda()
     # x_s = torch.randn([8, 3, 512, 512]).cuda() * 255
     # x_t = torch.randn([8, 3, 512, 512]).cuda() * 255
     # l_s = torch.randint(0, 1, [8, 512, 512]).long().cuda()
@@ -345,6 +353,7 @@ if __name__ == '__main__':
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
+        print(loss_class)
         optimizer.zero_grad()
         loss_class.backward()
         for name, param in model.named_parameters():
@@ -359,6 +368,7 @@ if __name__ == '__main__':
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_domain = aligner.align_domain(f_s, f_t)
+        print(loss_domain)
         optimizer.zero_grad()
         loss_domain.backward()
         for name, param in model.named_parameters():
@@ -375,6 +385,7 @@ if __name__ == '__main__':
         ot1, ot2, f_t = model(x_t)
         loss_seg = loss_calc([os1, os2], l_s, multi=True)
         loss_seg += loss_calc([ot1, ot2], l_t, multi=True)
+        print(loss_seg)
         optimizer.zero_grad()
         loss_seg.backward()
         for name, param in model.named_parameters():

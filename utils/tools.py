@@ -164,10 +164,10 @@ def import_config(config_name, prefix='configs', copy=True):
 
 
 def portion_warmup(i_iter, start_iter, end_iter):
-    if i_iter < start_iter:
+    if i_iter < start_iter or i_iter > end_iter or start_iter >= end_iter:
         return 0
-    return 2.0 / (1.0 + exp(-10.0 * float(i_iter - start_iter) / float(end_iter - start_iter))) - 1
-
+    # return 2.0 / (1.0 + exp(-1 * float(i_iter - start_iter) / float(end_iter - start_iter))) - 1
+    return float(i_iter - start_iter) / float(end_iter - start_iter)
 
 def lr_poly(base_lr, i_iter, max_iter, power):
     return base_lr * ((1 - float(i_iter) / max_iter) ** power)

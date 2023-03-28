@@ -41,7 +41,7 @@ class MMDLoss(nn.Module):
     @staticmethod
     def forward_linear(f_of_x, f_of_y):
         delta = f_of_x.float().mean(0) - f_of_y.float().mean(0)
-        loss = delta.dot(delta.T)
+        loss = delta.dot(delta.T) / delta.size(0)
         return loss
 
     def forward(self, source, target):
@@ -57,6 +57,34 @@ class MMDLoss(nn.Module):
             yx = torch.mean(kernels[batch_size:, :batch_size])
             loss = torch.mean(xx + yy - xy - yx)
             return loss
+
+
+class CoralLoss(nn.Module):
+
+    def __init__(self, is_sqrt=False):
+        """
+        Coral loss implement for eq(1) in https://arxiv.org/pdf/1607.01719.pdf
+        Args:
+            is_sqrt:
+        """
+        super().__init__()
+        self.is_sqrt = is_sqrt
+
+    def forward(self, source, target):
+        d = source.data.shape[1]
+        ns, nt = source.data.shape[0], target.data.shape[0]
+        # source covariance
+        xm = torch.mean(source, 0, keepdim=True) - source
+        xc = xm.t() @ xm / (ns - 1)
+
+        # target covariance
+        xmt = torch.mean(target, 0, keepdim=True) - target
+        xct = xmt.t() @ xmt / (nt - 1)
+
+        # frobenius norm between source and target
+        loss = torch.sum(torch.mul((xc - xct), (xc - xct)))
+        loss = (loss.sqrt() if self.is_sqrt else loss) / (4 * d * d)
+        return loss
 
 
 class CoralLoss2(nn.Module):
@@ -87,34 +115,6 @@ class CoralLoss2(nn.Module):
         loss = loss.sqrt() if self.is_sqrt else loss
         loss = loss / (4 * d * d)
 
-        return loss
-
-
-class CoralLoss(nn.Module):
-
-    def __init__(self, is_sqrt=False):
-        """
-        Coral loss implement for eq(1) in https://arxiv.org/pdf/1607.01719.pdf
-        Args:
-            is_sqrt:
-        """
-        super().__init__()
-        self.is_sqrt = is_sqrt
-
-    def forward(self, source, target):
-        d = source.data.shape[1]
-        ns, nt = source.data.shape[0], target.data.shape[0]
-        # source covariance
-        xm = torch.mean(source, 0, keepdim=True) - source
-        xc = xm.t() @ xm / (ns - 1)
-
-        # target covariance
-        xmt = torch.mean(target, 0, keepdim=True) - target
-        xct = xmt.t() @ xmt / (nt - 1)
-
-        # frobenius norm between source and target
-        loss = torch.sum(torch.mul((xc - xct), (xc - xct)))
-        loss = (loss.sqrt() if self.is_sqrt else loss) / (4 * d * d)
         return loss
 
 
@@ -200,7 +200,7 @@ class Aligner:
             self.class_u_t = self.ema(self.class_u_t.detach(), u_s, decay=0.99)
         return u_s
 
-    def align_domain(self, feat_s, feat_t):
+    def align_domain_mmd(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         # feat_s = torch.mean(feat_s, dim=[2, 3])
@@ -209,10 +209,10 @@ class Aligner:
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.mmd(feat_s, feat_t)
 
-    def align_domain_all_example(self, feat_s, feat_t):
+    def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels]).detach()
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
 
@@ -252,52 +252,6 @@ class Aligner:
         return nnf.mse_loss(self.class_u_t, self.class_u_s.detach())
         # return -1 * torch.mean(nnf.cosine_similarity(self.class_u_t, self.class_u_s.detach()))
 
-    def align_category_0(self, feat_s, label_s, feat_t, label_t):
-        """ Compute the loss for discrepancy between class distribution.
-
-        Args:
-            feat_s:  features from source, shape as (batch_size, feature_channels, height, width)
-            label_s: labels from source  , shape as (batch_size, height, width)
-            feat_t:  features from source, shape as (batch_size, feature_channels, height, width)
-            label_t: pseudo labels from target, shape as (batch_size, height, width)
-
-        Returns:
-            loss for discrepancy between class distribution.
-        """
-        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
-        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        assert label_s.shape == label_t.shape, 'tensor "label_s" has the same shape as tensor "label_t"'
-        assert len(label_s.shape) == 3, 'tensor "label_s" and "feat_t" must have 3 dimensions'
-        # compute statistics within the mini-batch
-        feat_s, label_s = feat_s.cuda(), label_s.cuda()
-        feat_t, label_t = feat_t.cuda(), label_t.cuda()
-        label_s = nnf.interpolate(torch.unsqueeze(label_s.float(), dim=1), size=feat_s.shape[-2:])
-        label_t = nnf.interpolate(torch.unsqueeze(label_t.float(), dim=1), size=feat_t.shape[-2:])
-        label_s = label_s.expand(*feat_s.shape)
-        label_t = label_t.expand(*feat_t.shape)
-        u_s_list, u_t_list, sigma_s_list, sigma_t_list = [], [], [], []
-        float_zero = torch.tensor(0).float().cuda()
-        for class_i in range(self.class_num):
-            class_i_feat_s = torch.where(label_s == class_i, feat_s, float_zero)
-            class_i_feat_t = torch.where(label_t == class_i, feat_t, float_zero)
-            u_s_list.append(torch.mean(class_i_feat_s, dim=[0, 2, 3], keepdim=False).unsqueeze(dim=0))
-            u_t_list.append(torch.mean(class_i_feat_t, dim=[0, 2, 3], keepdim=False).unsqueeze(dim=0))
-            sigma_s_list.append(torch.var(class_i_feat_s, dim=[0, 2, 3], unbiased=True).unsqueeze(dim=0))
-            sigma_t_list.append(torch.var(class_i_feat_t, dim=[0, 2, 3], unbiased=True).unsqueeze(dim=0))
-        u_s = torch.cat(u_s_list, dim=0)  # (class_num, feat_channels)
-        u_t = torch.cat(u_t_list, dim=0)  # (class_num, feat_channels)
-        sigma_s = torch.cat(sigma_s_list, dim=0)  # (class_num, feat_channels)
-        sigma_t = torch.cat(sigma_t_list, dim=0)  # (class_num, feat_channels)
-        # update the statistics of classes
-        self.class_u_s = self.ema(self.class_u_s, u_s)
-        self.class_u_t = self.ema(self.class_u_t, u_t)
-        self.class_sigma_s = self.ema(self.class_sigma_s, sigma_s)
-        self.class_sigma_t = self.ema(self.class_sigma_t, sigma_t)
-        # compute loss and return
-        loss = -1 * torch.mean(nnf.cosine_similarity(u_s, u_t, dim=1))
-        loss += torch.mean(sigma_s) + torch.mean(sigma_t)
-        return loss
-
     @staticmethod
     def align_instance(feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
@@ -309,7 +263,6 @@ class Aligner:
         return new_average
 
     def show(self, save_path=None, display=True):
-
         pass
 
 
@@ -340,7 +293,7 @@ if __name__ == '__main__':
 
     def rand_x_l():
         return torch.randn([8, 3, 512, 512]).cuda() * 255, \
-               torch.randn([8, 3, 512, 512]).cuda() * 255, \
+               torch.randn([8, 3, 512, 512]).cuda() * 128, \
                torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
                torch.randint(1, 2, [8, 512, 512]).long().cuda()
     # x_s = torch.randn([8, 3, 512, 512]).cuda() * 255

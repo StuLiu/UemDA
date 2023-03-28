@@ -168,7 +168,7 @@ class Aligner:
         self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         self.coral = CoralLoss()
-        self.mmd = MMDLoss(kernel_type='rbf')
+        self.mmd = MMDLoss(kernel_type='linear')
         self.downscale_gt = DownscaleLabel(scale_factor=16,
                                            n_classes=7,
                                            ignore_index=-1,
@@ -203,8 +203,10 @@ class Aligner:
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        feat_s = torch.mean(feat_s, dim=[2, 3])
-        feat_t = torch.mean(feat_t, dim=[2, 3])
+        # feat_s = torch.mean(feat_s, dim=[2, 3])
+        # feat_t = torch.mean(feat_t, dim=[2, 3])
+        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.mmd(feat_s, feat_t)
 
     def align_domain_all_example(self, feat_s, feat_t):

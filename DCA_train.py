@@ -171,7 +171,7 @@ def main():
                                    [pred_t1, pred_t2, feat_t],
                                    multi_layer=True)
 
-                loss = loss_seg + loss_pseudo  + (source_intra + domain_cross)
+                loss = loss_seg + loss_pseudo + (source_intra + domain_cross)
 
                 optimizer.zero_grad()
                 loss.backward()

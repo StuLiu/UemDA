@@ -6,13 +6,13 @@ IGNORE_LABEL = -1
 MOMENTUM = 0.9
 NUM_CLASSES = 7
 
-SNAPSHOT_DIR = './log/GAST/2urban'
+SNAPSHOT_DIR = './log/DCA_base/2urban'
 
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
 NUM_STEPS = 15000  # for learning rate poly
-NUM_STEPS_STOP = 10000  # Use damping instead of early stopping
+NUM_STEPS_STOP = 10001  # Use damping instead of early stopping
 FIRST_STAGE_STEP = 4000  # for first stage
 PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9  # lr poly power

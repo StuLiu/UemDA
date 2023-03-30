@@ -10,7 +10,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
-import numpy as np
+from module.gast.SAW import SAW
 
 
 class MMDLoss(nn.Module):
@@ -71,6 +71,13 @@ class CoralLoss(nn.Module):
         self.is_sqrt = is_sqrt
 
     def forward(self, source, target):
+        """
+        Args:
+            source: tensor with shape=(instance num, feature dimension)
+            target: tensor with shape=(instance num, feature dimension)
+        Returns:
+            deep coral loss
+        """
         d = source.data.shape[1]
         ns, nt = source.data.shape[0], target.data.shape[0]
         # source covariance
@@ -168,11 +175,12 @@ class Aligner:
         self.class_sigma_t = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         self.coral = CoralLoss()
-        self.mmd = MMDLoss(kernel_type='linear')
+        # self.mmd = MMDLoss(kernel_type='linear')
         self.downscale_gt = DownscaleLabel(scale_factor=16,
                                            n_classes=7,
                                            ignore_index=-1,
-                                           min_ratio=0.75)
+                                           min_ratio=0.75).cuda()
+
 
     def update_class_prototypes(self, feat, label, is_source=True):
         feat, label = feat.cuda(), label.cuda()
@@ -203,9 +211,7 @@ class Aligner:
     def align_domain_mmd(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        # feat_s = torch.mean(feat_s, dim=[2, 3])
-        # feat_t = torch.mean(feat_t, dim=[2, 3])
-        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels]).detach()
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.mmd(feat_s, feat_t)
 
@@ -216,24 +222,14 @@ class Aligner:
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
 
-    def align_domain_0(self, feat_s, feat_t):
-        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
-        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        u_s = torch.mean(feat_s, dim=[0, 2, 3], keepdim=False)  # (feat_channels,)
-        u_t = torch.mean(feat_t, dim=[0, 2, 3], keepdim=False)  # (feat_channels,)
-        sigma_s = torch.var(feat_s, dim=[0, 2, 3], unbiased=True)  # (feat_channels,)
-        sigma_t = torch.var(feat_t, dim=[0, 2, 3], unbiased=True)  # (feat_channels,)
-        # update the statistics of domains
-        self.domain_u_s = self.ema(self.domain_u_s, u_s)
-        self.domain_u_t = self.ema(self.domain_u_t, u_t)
-        self.domain_sigma_s = self.ema(self.domain_sigma_s, sigma_s)
-        self.domain_sigma_t = self.ema(self.domain_sigma_t, sigma_t)
-        # compute loss and return
-        return nnf.mse_loss(u_s, u_t) + nnf.mse_loss(sigma_s, sigma_t)
+    def align_class_within_domain(self, feat_s, label_s):
+        pass
+
+    def align_class_cross_domain(self, feat_s, label_s, feat_t, label_t):
+        pass
 
     def align_class(self, feat_s, label_s, feat_t, label_t):
         """ Compute the loss for discrepancy between class distribution.
-
         Args:
             feat_s:  features from source, shape as (batch_size, feature_channels, height, width)
             label_s: labels from source  , shape as (batch_size, height, width)
@@ -248,8 +244,8 @@ class Aligner:
         assert label_s.shape == label_t.shape, 'tensor "label_s" has the same shape as tensor "label_t"'
         assert len(label_s.shape) == 3, 'tensor "label_s" and "feat_t" must have 3 dimensions'
         self.update_class_prototypes(feat_s, label_s, is_source=True)
-        self.update_class_prototypes(feat_t, label_t, is_source=False)
-        return nnf.mse_loss(self.class_u_t, self.class_u_s.detach())
+        class_u_t_local = self.update_class_prototypes(feat_t, label_t, is_source=False)
+        return nnf.mse_loss(class_u_t_local, self.class_u_s.detach())
         # return -1 * torch.mean(nnf.cosine_similarity(self.class_u_t, self.class_u_s.detach()))
 
     @staticmethod
@@ -284,7 +280,8 @@ if __name__ == '__main__':
             use_aux=False,
         ),
         inchannels=2048,
-        num_classes=7
+        num_classes=7,
+        is_ins_norm=True,
     )).cuda()
     model.train()
     optimizer = optim.SGD(model.parameters(), lr=0.01)
@@ -292,8 +289,8 @@ if __name__ == '__main__':
     aligner = Aligner(logger=logging.getLogger(''), feat_channels=2048, class_num=7)
 
     def rand_x_l():
-        return torch.randn([8, 3, 512, 512]).cuda() * 255, \
-               torch.randn([8, 3, 512, 512]).cuda() * 128, \
+        return torch.randn([8, 3, 512, 512]).cuda() + 10, \
+               torch.randn([8, 3, 512, 512]).cuda() * 2 + 1, \
                torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
                torch.randint(1, 2, [8, 512, 512]).long().cuda()
     # x_s = torch.randn([8, 3, 512, 512]).cuda() * 255

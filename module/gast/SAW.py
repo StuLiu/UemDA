@@ -6,7 +6,7 @@
 @Date    : 2023/3/29 下午5:15
 @e-mail  : 1183862787@qq.com
 """
-
+# https://openaccess.thecvf.com/content/CVPR2022/html/Peng_Semantic-Aware_Domain_Generalized_Segmentation_CVPR_2022_paper.html
 import torch
 import torch.nn as nn
 import math
@@ -28,7 +28,7 @@ class SAW(nn.Module):
         self.C = len(selected_classes)
         assert self.C in [2, 4, 6, 8, 16]
         self.i = torch.eye(self.C, self.C).cuda()
-        self.reversal_i = torch.ones(self.C, self.C).triu(diagonal=1).cuda()
+        self.reversal_i = torch.ones(self.C, self.C).float().triu(diagonal=1).cuda()
         self.num_off_diagonal = torch.sum(self.reversal_i)
         if relax_denom == 0:
             print("Note relax_denom == 0!")

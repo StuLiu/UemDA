@@ -21,11 +21,13 @@ from torch.nn.utils import clip_grad
 from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 
+
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
-parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='config path')
+parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
 parser.add_argument('--align-domain', type=str2bool, default=True, help='whether align domain or not')
-parser.add_argument('--align-class', type=str2bool, default=False, help='whether align class or not')
+parser.add_argument('--align-class', type=str2bool, default=True, help='whether align class or not')
+parser.add_argument('--whiten', type=str2bool, default=True, help='whether whiten or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
@@ -79,7 +81,7 @@ def main():
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
 
-        lmd_1 = portion_warmup(i_iter=i_iter, start_iter=0, end_iter=cfg.FIRST_STAGE_STEP)
+        lmd_1 = portion_warmup(i_iter=i_iter, start_iter=0, end_iter=cfg.NUM_STEPS_STOP)
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
         if i_iter < cfg.FIRST_STAGE_STEP:
@@ -88,26 +90,30 @@ def main():
 
             # source infer
             batch = trainloader_iter.next()
-            images_s, labels_s = batch[0]
-            pred_s1, pred_s2, feat_s = model(images_s.cuda())
+            images_s, label_s = batch[0]
+            images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
+            pred_s1, pred_s2, feat_s = model(images_s)
 
             # target infer
             batch = targetloader_iter.next()
             images_t, _ = batch[0]
-            _, _, feat_t = model(images_t.cuda())
+            images_t = images_t.cuda()
+            _, _, feat_t = model(images_t)
 
             # Loss: source segmentation + global alignment
-            loss_seg = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
+            loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss = (loss_seg + lmd_1 * loss_domain)
+            loss_whiten = aligner.whitening(feat_s, label_s) if args.whiten else 0
+            loss = (loss_seg + lmd_1 * (loss_domain + 0.001 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
             log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f},' \
-                       f' loss_domain={loss_domain:.3e},' \
+                       f' loss_domain={loss_domain:.3e}, loss_white={loss_whiten * 0.001:.3e},' \
                        f' lr={lr:.3e}, lmd_1={lmd_1:.3f}'
+            aligner.init_prototypes_by_source(feat_s, label_s)
         else:
             log_loss = ''
             # Second Stage
@@ -149,13 +155,13 @@ def main():
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
-                # loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss_domain = 0
+                loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss_class = aligner.align_class(feat_s, label_s, feat_t, label_t) if args.align_class else 0
-
+                loss_whiten = aligner.whitening(feat_s, label_s) + aligner.whitening(feat_t, label_t) \
+                    if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
-                        lmd_1 * loss_domain +
+                        lmd_1 * (loss_domain + 0.001 * loss_whiten) +
                         lmd_2 * loss_class)
 
                 optimizer.zero_grad()
@@ -164,7 +170,7 @@ def main():
                                           max_norm=35, norm_type=2)
                 optimizer.step()
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
-                           f' domain={loss_domain:.3e}, class={loss_class:.3e},' \
+                           f' domain={loss_domain:.3e}, class={loss_class:.3e}, white={loss_whiten * 0.001:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
         # logging training process, evaluating and saving

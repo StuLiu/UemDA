@@ -15,6 +15,7 @@ class ClassWareWhitening(nn.Module):
 
     def __init__(self, class_ids=(), groups=1):
         super().__init__()
+        assert groups >= 1
         self.class_ids = class_ids
         self.groups = groups
 
@@ -29,9 +30,9 @@ class ClassWareWhitening(nn.Module):
             covariance matrix for feats
         """
         num = torch.sum(mask)  # example number
-        if num == 0:
-            return torch.eye(feats.size(1)).cuda()
-        x_masked = (feats * mask).permute(0, 2, 3, 1).reshape(-1, feats.size(1))
+        if num <= 1:
+            return torch.eye(feats.shape[1]).cuda()
+        x_masked = (feats * mask).permute(0, 2, 3, 1).reshape(-1, feats.shape[1])
         mask = mask.permute(0, 2, 3, 1).reshape(-1, 1)
         x_centered = x_masked - torch.sum(x_masked, dim=0, keepdim=True) * mask / num
         x_covariance = x_centered.t() @ x_centered / (num - 1)
@@ -39,7 +40,7 @@ class ClassWareWhitening(nn.Module):
 
     def instance_whitening_loss(self, feats, mask):
         x_cor = self.get_covariance_matrix(feats, mask)
-        eye = torch.eye(feats.size(1)).cuda()
+        eye = torch.eye(feats.shape[1]).cuda()
         # print( ((x_cor - eye) ** 2).mean())
         return tnf.mse_loss(x_cor, eye)
 

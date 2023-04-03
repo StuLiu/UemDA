@@ -24,10 +24,8 @@ target_dir = dict(
 )
 
 test_target_dir = dict(
-    image_dir=[
-        './LoveDA/Test/Urban/images_png/',
-    ],
-    mask_dir=None,
+    image_dir='./LoveDA/Test/Urban/images_png/',
+    mask_dir=None
 )
 
 SOURCE_DATA_CONFIG = dict(

@@ -25,18 +25,20 @@ class Aligner:
         self.logger = logger
         self.eps = 1e-5
 
-        # statistics of classes
+        # prototypes for all classes
         self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         self.downscale_gt = DownscaleLabel(scale_factor=16, n_classes=7, ignore_label=ignore_label, min_ratio=0.75)
         self.coral = CoralLoss()
-        self._whitener = ClassWareWhitening(class_ids=range(class_num), groups=8)#self.feat_channels // 8)
         self.contra = ContrastiveLoss(margin=0.5, class_num=class_num)
+        self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=8)#self.feat_channels // 8)
 
-    def init_prototypes_by_source(self, feat_s, label_s):
-        feat_s, label_s = self._reshape_pair(feat_s, label_s)
-        local_prototype_s = self._get_local_prototypes(feat_s, label_s)
-        self.update_prototypes(local_prototype_s)
+    def compute_local_prototypes(self, feat, label, update=True, decay=0.99):
+        feat, label = self._reshape_pair(feat, label)
+        local_prototype = self._get_local_prototypes(feat, label)
+        if update:
+            self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
+        return local_prototype
 
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
@@ -47,11 +49,12 @@ class Aligner:
 
     def align_class(self, feat_s, label_s, feat_t, label_t):
         """ Compute the loss for discrepancy between class distribution.
+            At the same time, update the shared prototypes by the local prototypes of source and target domain
         Args:
-            feat_s:  features from source, shape as (batch_size, feature_channels, height, width)
-            label_s: labels from source  , shape as (batch_size, height, width)
-            feat_t:  features from source, shape as (batch_size, feature_channels, height, width)
-            label_t: pseudo labels from target, shape as (batch_size, height, width)
+            feat_s:  features from source, shape as (b, k, h, w)
+            label_s: labels from source  , shape as (b, 32*h, 32*w)
+            feat_t:  features from source, shape as (b, k, h, w)
+            label_t: pseudo labels from target, shape as (b, 32*h, 32*w)
         Returns:
             loss_whiten:
             loss_triple:
@@ -60,38 +63,26 @@ class Aligner:
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
 
-        feat_s, label_s = self._reshape_pair(feat_s, label_s)     # (b*h*w, 1, k), (b*h*w, c, 1)
-        feat_t, label_t = self._reshape_pair(feat_t, label_t)     # (b*h*w, 1, k), (b*h*w, c, 1)
-
-        # get local prototype
-        local_prototype_s = self._get_local_prototypes(feat_s, label_s)
-        local_prototype_t = self._get_local_prototypes(feat_t, label_t)
-
-        # update the shared prototypes
-        self.update_prototypes(local_prototype_s)
-        self.update_prototypes(local_prototype_t)
-
+        local_prototype_s = self.compute_local_prototypes(feat_s, label_s, update=True)
+        local_prototype_t = self.compute_local_prototypes(feat_t, label_t, update=True)
         # get contrastive loss within a single domain and cross domain
         # loss_contrastive = self.loss_constractive(feat_s, label_s, feat_t, label_t)
         loss_contrastive = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
+        return loss_contrastive
 
-        # get class-ware whitening loss
-        loss_whiten = 0#self._whitener(feat_s, label_s) + self._whitener(feat_t, label_t)
-        return 0.001 * loss_whiten + loss_contrastive  # , tnf.mse_loss(class_u_t_local, self.prototypes.detach())
+    def align_instance(self, feat_s, label_s, feat_t, label_t):
+        pass
 
-    def whitening(self, feat, label):
-        return self._whitener(feat, self.downscale_gt(label))
-
-    @staticmethod
-    def ema(history, curr, decay=0.99):
-        new_average = (1.0 - decay) * curr + decay * history
-        return new_average
-
-    def update_prototypes(self, p_local, decay=0.99):
-        self.prototypes = self.ema(self.prototypes, p_local, decay).detach()
+    def whiten_class_ware(self, feat, label):
+        return self.whitener(feat, self.downscale_gt(label))
 
     def show(self, save_path=None, display=True):
         pass
+
+    @staticmethod
+    def _ema(history, curr, decay=0.99):
+        new_average = (1.0 - decay) * curr + decay * history
+        return new_average
 
     def _reshape_pair(self, feat, label):
         """ Get the flattened features and the one-hot labels
@@ -185,20 +176,34 @@ if __name__ == '__main__':
                torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
                torch.randint(1, 2, [8, 512, 512]).long().cuda()
 
+    for i in range(1000):
+        x_s, x_t, l_s, l_t = rand_x_l()
+        _, _, f_s = model(x_s)
+        _, _, f_t = model(x_t)
+        loss_white = aligner.whitening(f_s, l_s) + aligner.whitening(f_t, l_t)
+        print(loss_white.cpu().item(), '\t', i)
+        optimizer.zero_grad()
+        loss_white.backward()
+        # for name, param in model.named_parameters():
+        #     print(name, param.requires_grad)
+        #     print(param.grad[0][0][0])
+        #     break
+    print('grad of loss white')
+    print('=========================================================')
+
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
         loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
-        loss_white = aligner.whitening(f_s, l_s) + aligner.whitening(f_t, l_t)
-        print(loss_class, loss_white)
+        print(loss_class)
         optimizer.zero_grad()
-        loss_white.backward()
+        loss_class.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
             break
-        print('grad of loss class')
+    print('grad of loss class ')
     print('=========================================================')
 
     for i in range(2):
@@ -213,7 +218,7 @@ if __name__ == '__main__':
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
             break
-        print('grad of loss domain')
+    print('grad of loss domain')
     print('=========================================================')
 
     from utils.tools import loss_calc
@@ -230,6 +235,6 @@ if __name__ == '__main__':
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
             break
-        print('grad of loss seg')
+    print('grad of loss seg')
     print('=========================================================')
     print('end')

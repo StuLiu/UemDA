@@ -103,7 +103,7 @@ def main():
             # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss_whiten = aligner.whitening(feat_s, label_s) if args.whiten else 0
+            loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
             loss = (loss_seg + lmd_1 * (loss_domain + 0.001 * loss_whiten))
 
             loss.backward()
@@ -113,7 +113,7 @@ def main():
             log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f},' \
                        f' loss_domain={loss_domain:.3e}, loss_white={loss_whiten * 0.001:.3e},' \
                        f' lr={lr:.3e}, lmd_1={lmd_1:.3f}'
-            aligner.init_prototypes_by_source(feat_s, label_s)
+            aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)
         else:
             log_loss = ''
             # Second Stage
@@ -157,7 +157,7 @@ def main():
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss_class = aligner.align_class(feat_s, label_s, feat_t, label_t) if args.align_class else 0
-                loss_whiten = aligner.whitening(feat_s, label_s) + aligner.whitening(feat_t, label_t) \
+                loss_whiten = aligner.whiten_class_ware(feat_s, label_s) + aligner.whiten_class_ware(feat_t, label_t) \
                     if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +

@@ -33,6 +33,7 @@ class PixelContrastLoss(nn.Module):
         self.ignore_label = -1
         self.max_samples = 1024
         self.max_views = 100
+        self.eps = 1e-5
 
     def _hard_anchor_sampling(self, feats, y_hat, y):
         """
@@ -123,9 +124,8 @@ class PixelContrastLoss(nn.Module):
         mask = mask.repeat(anchor_count, contrast_count)
         neg_mask = 1 - mask
 
-        logits_mask = torch.ones_like(mask).scatter_(1,
-                                                     torch.arange(anchor_num * anchor_count).view(-1, 1).cuda(),
-                                                     0)
+        logits_mask = torch.ones_like(mask).scatter_(
+            1, torch.arange(anchor_num * anchor_count).view(-1, 1).cuda(), 0)
         mask = mask * logits_mask
 
         neg_logits = torch.exp(logits) * neg_mask
@@ -133,9 +133,9 @@ class PixelContrastLoss(nn.Module):
 
         exp_logits = torch.exp(logits)
 
-        log_prob = logits - torch.log(exp_logits + neg_logits)
+        log_prob = logits - torch.log(exp_logits + neg_logits + self.eps)
 
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / (mask.sum(1) + self.eps)
 
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
         loss = loss.mean()

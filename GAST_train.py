@@ -21,12 +21,12 @@ from torch.nn.utils import clip_grad
 from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 
-
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
 parser.add_argument('--align-domain', type=str2bool, default=True, help='whether align domain or not')
 parser.add_argument('--align-class', type=str2bool, default=True, help='whether align class or not')
+parser.add_argument('--align-instance', type=str2bool, default=True, help='whether align instance or not')
 parser.add_argument('--whiten', type=str2bool, default=True, help='whether whiten or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -103,17 +103,19 @@ def main():
             # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
+            loss_instance = 0  # aligner.align_instance(feat_s, label_s) if args.align_instance else 0
             loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + 0.001 * loss_whiten))
+            loss = (loss_seg + lmd_1 * (loss_domain + loss_instance + 0.001 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
-            log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f},' \
-                       f' loss_domain={loss_domain:.3e}, loss_white={loss_whiten * 0.001:.3e},' \
-                       f' lr={lr:.3e}, lmd_1={lmd_1:.3f}'
-            aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)
+            log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+                       f'loss_domain={loss_domain:.3e}, loss_instance={loss_instance:.3e} ' \
+                       f'loss_white={loss_whiten * 0.001:.3e}, ' \
+                       f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
+            aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)  # update shared prototypes
         else:
             log_loss = ''
             # Second Stage
@@ -157,11 +159,11 @@ def main():
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss_class = aligner.align_class(feat_s, label_s, feat_t, label_t) if args.align_class else 0
-                loss_whiten = aligner.whiten_class_ware(feat_s, label_s) + aligner.whiten_class_ware(feat_t, label_t) \
-                    if args.whiten else 0
+                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, label_t) if args.align_instance else 0
+                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, label_t) if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
-                        lmd_1 * (loss_domain + 0.001 * loss_whiten) +
+                        lmd_1 * (loss_domain + loss_instance + 0.001 * loss_whiten) +
                         lmd_2 * loss_class)
 
                 optimizer.zero_grad()
@@ -170,7 +172,8 @@ def main():
                                           max_norm=35, norm_type=2)
                 optimizer.step()
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
-                           f' domain={loss_domain:.3e}, class={loss_class:.3e}, white={loss_whiten * 0.001:.3e},' \
+                           f' domain={loss_domain:.3e}, class={loss_class:.3e}, instance={loss_instance:.3e},' \
+                           f' white={loss_whiten * 0.001:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
         # logging training process, evaluating and saving

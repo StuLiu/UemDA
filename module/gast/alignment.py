@@ -13,13 +13,11 @@ import torch.nn.functional as tnf
 from module.gast.class_ware_whiten import ClassWareWhitening
 from module.gast.coral import CoralLoss
 import math
-# from module.gast.contrastive import ContrastiveLoss
 
 
 class Aligner:
 
     def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1):
-
         self.feat_channels = feat_channels
         self.class_num = class_num
         self.ignore_label = ignore_label
@@ -36,11 +34,18 @@ class Aligner:
         self.coral = CoralLoss()
 
         # criterion for feature whitening
-        self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=8) # self.feat_channels // 8)
+        self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=8)  # self.feat_channels // 8)
 
-    def compute_local_prototypes(self, feat, label, update=True, decay=0.99):
-        feat, label = self._reshape_pair(feat, label)
-        local_prototype = self._get_local_prototypes(feat, label)
+    def compute_local_prototypes(self, feat, label, update=False, decay=0.99):
+        # feat, label = self._reshape_pair(feat, label)
+        b, k, h, w = feat.shape
+        labels = self.downscale_gt(label)  # (b, 32*h, 32*w) -> (b, 1, h, w)
+        labels = self._index2onehot(labels)  # (b, 1, h, w) -> (b, c, h, w)
+        feats = feat.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
+        feats = feats.view(-1, 1, k)  # (b*h*w, 1, k)
+        labels = labels.view(-1, self.class_num, 1)  # (b*h*w, c, 1)
+        # local_prototype = self._get_local_prototypes(feat, label)
+        local_prototype = (feats * labels).sum(0) / (labels.sum(0) + self.eps)
         if update:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
         return local_prototype
@@ -73,35 +78,81 @@ class Aligner:
         # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
         loss_class = (self._class_align_loss(local_prototype_s, local_prototype_s) +
                       self._class_align_loss(local_prototype_s, local_prototype_t))
-
         return loss_class
 
-    def align_instance(self, feat_s, label_s, feat_t, label_t):
-        loss_instance = (self._instance_align_loss(feat_s, label_s) +
-                         self._instance_align_loss(feat_t, label_t))
+    def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
+        loss_instance = self._instance_align_loss(feat_s, self.downscale_gt(label_s))
+        if feat_t is not None and label_t is not None:
+            loss_instance += self._instance_align_loss(feat_t, self.downscale_gt(label_t))
         return loss_instance
 
-    def whiten_class_ware(self, feat, label):
-        return self.whitener(feat, self.downscale_gt(label))
+    def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
+        loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
+        if feat_t is not None and label_t is not None:
+            loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
+        return loss_white
 
     def show(self, save_path=None, display=True):
         pass
 
-    def _class_align_loss(self, prototypes_1, prototypes_2, margin=0.5):
+    def _class_align_loss(self, prototypes_1, prototypes_2, margin=3, hard_ratio=0.3):
+        """ Compute the loss between two local prototypes.
+        Args:
+            prototypes_1: local prototype from a batch. shape=(c, k)
+            prototypes_2: local prototype from a batch. shape=(c, k)
+            margin: distance for margin loss. a no-neg float.
+            hard_ratio: ratio for selecting hardest examples.
+        Returns:
+            loss_2p: loss for two local prototypes.
+        """
+        assert 0 <= margin and 0 < hard_ratio <= 1
         assert prototypes_1.shape == prototypes_2.shape
-        dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)      # (c, c)
+        # compute distance matrix for each class pair
+        dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)  # (c, c)
+
+        # hard example mining
+        hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
         eye_neg = 1 - torch.eye(self.class_num).cuda()
+        dist_sorted, _ = torch.sort(dist_matrix * eye_neg, dim=1, descending=False)
+        dist_hardest = dist_sorted[:, : hard_num]  # (c, hard_num)
+
         # the mean distance between the same classes
-        d_mean_same = torch.diag(dist_matrix).mean()
+        d_mean_pos = torch.diag(dist_matrix).mean()
         # the mean distance across classes
-        d_mean_diff = (dist_matrix * eye_neg).sum() / (eye_neg.sum() + self.eps)
-        return torch.log(1 + max(d_mean_same - d_mean_diff + margin, 0))
+        d_mean_neg = dist_hardest.sum() / (self.class_num * (hard_num - 1) + self.eps)
+        # loss_p2p = -torch.log(1.0 + (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()))
+        loss_p2p = torch.log(1 + d_mean_pos) / torch.log(1 + d_mean_neg + self.eps)
+        return loss_p2p
 
-    def _instance_align_loss(self, feat, label):
-        dist_matrix = torch.cdist(feat, self.prototypes)  # (b*h*w, k)
-        label = self._index2onehot(label)
+    def _instance_align_loss(self, feat, label, margin=3, hard_ratio=0.3):
+        """Compute the loss between instances and prototypes.
+        Args:
+            feat: deep features outputted by backbone. shape=(b, k, h, w)
+            label: gt or pseudo label. shape=(b, h, w) or (b, 1, h, w)
+            margin: distance for margin loss. a no-neg float.
+            hard_ratio: ratio for selecting hardest examples.
+        Returns:
+            loss_2p: loss between instances and their prototypes.
+        """
+        assert 0 <= margin and 0 < hard_ratio <= 1
+        feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)
+        ins_num = feat.shape[0]
+        # compute the dist between instances and classes
+        dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # (b*h*w, c)
 
-        pass
+        # compute the distances for each instance with their nearest prototypes.
+        mask_pos = self._index2onehot(label)  # (b*h*w, c)
+        mask_neg = 1 - mask_pos  # (b*h*w, c)
+        hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
+        dist_sorted, _ = torch.sort(dist_matrix * mask_neg, dim=1, descending=False)
+        dist_hardest = dist_sorted[:, : hard_num]
+
+        # the mean distance between instances and their prototypes
+        d_mean_pos = (dist_matrix * mask_pos).sum() / (ins_num + self.eps)
+        d_mean_neg = dist_hardest.sum() / (ins_num * (hard_num - 1) + self.eps)
+        # loss_i2p = torch.log(1.0 + max(d_mean_pos - d_mean_neg + margin, torch.FloatTensor([0]).cuda())).mean()
+        loss_i2p = torch.log(1 + d_mean_pos) / torch.log(1 + d_mean_neg + self.eps)
+        return loss_i2p
 
     @staticmethod
     def _ema(history, curr, decay=0.99):
@@ -114,35 +165,6 @@ class Aligner:
         labels[labels == self.ignore_label] = self.class_num
         labels = tnf.one_hot(labels.squeeze(1), num_classes=self.class_num + 1)[:, :-1]  # (b*h*w, c)
         return labels
-
-    def _reshape_pair(self, feat, label):
-        """ Get the flattened features and the one-hot labels
-        Args:
-            feat:   (b, k, h, w)
-            label:  (b, 1, 32*h, 32*w)
-        Returns:
-            feats:  (b*h*w, 1, k)
-            labels: (b*h*w, c, 1), one hot label without the ignored label
-        """
-        labels = label.clone()
-        labels = self.downscale_gt(labels)    # (b, h, w) -> (b, 1, h/32, w/32)
-        b, k, h, w = feat.shape
-        feats = feat.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
-        labels = self._index2onehot(labels)
-        feats = feats.view(-1, 1, k)  # (b*h*w, 1, k)
-        labels = labels.view(-1, self.class_num, 1)  # (b*h*w, c, 1)
-        return feats, labels
-
-    def _get_local_prototypes(self, feats, labels):
-        """ Get the prototypes of the classes in a mini-batch
-        Args:
-            feats: feature maps, (b*h*w, 1, k)
-            label: one-hotted gt or pseudo label (b*h*w, c, 1)
-        Returns:
-            u_classes: local prototypes within a batch
-        """
-        local_p = (feats * labels).sum(0) / (labels.sum(0) + self.eps)      # (b*h*w, c, k)
-        return local_p
 
 
 class DownscaleLabel(nn.Module):
@@ -177,6 +199,7 @@ if __name__ == '__main__':
     from module.Encoder import Deeplabv2
     import torch.optim as optim
     import logging
+
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',
@@ -199,20 +222,22 @@ if __name__ == '__main__':
 
     aligner = Aligner(logger=logging.getLogger(''), feat_channels=2048, class_num=7)
 
+
     def rand_x_l():
         return torch.randn([8, 3, 512, 512]).float().cuda(), \
                torch.ones([8, 3, 512, 512]).float().cuda() / 2, \
                torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
                torch.randint(1, 2, [8, 512, 512]).long().cuda()
 
+
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
-        loss_white = aligner.whiten_class_ware(f_s, l_s) + aligner.whiten_class_ware(f_t, l_t)
-        print(loss_white.cpu().item(), '\t', i)
+        _loss_white = aligner.whiten_class_ware(f_s, l_s, f_t, l_t)
+        print(_loss_white.cpu().item(), '\t', i)
         optimizer.zero_grad()
-        loss_white.backward()
+        _loss_white.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
@@ -224,10 +249,10 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
-        loss_domain = aligner.align_domain(f_s, f_t)
-        print(loss_domain)
+        _loss_domain = aligner.align_domain(f_s, f_t)
+        print(_loss_domain)
         optimizer.zero_grad()
-        loss_domain.backward()
+        _loss_domain.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
@@ -239,10 +264,10 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
-        loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
-        print(loss_class)
+        _loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
+        print(_loss_class)
         optimizer.zero_grad()
-        loss_class.backward()
+        _loss_class.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
@@ -250,15 +275,14 @@ if __name__ == '__main__':
     print('grad of loss class ')
     print('=========================================================')
 
-
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         _, _, f_t = model(x_t)
-        loss_domain = aligner.align_instance(f_s, l_s, f_t, l_t)
-        print(loss_domain)
+        _loss_ins = aligner.align_instance(f_s, l_s, f_t, l_t)
+        print(_loss_ins)
         optimizer.zero_grad()
-        loss_domain.backward()
+        _loss_ins.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])
@@ -267,15 +291,16 @@ if __name__ == '__main__':
     print('=========================================================')
 
     from utils.tools import loss_calc
+
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         os1, os2, f_s = model(x_s)
         ot1, ot2, f_t = model(x_t)
-        loss_seg = loss_calc([os1, os2], l_s, multi=True)
-        loss_seg += loss_calc([ot1, ot2], l_t, multi=True)
-        print(loss_seg)
+        _loss_seg = loss_calc([os1, os2], l_s, multi=True)
+        _loss_seg += loss_calc([ot1, ot2], l_t, multi=True)
+        print(_loss_seg)
         optimizer.zero_grad()
-        loss_seg.backward()
+        _loss_seg.backward()
         for name, param in model.named_parameters():
             print(name, param.requires_grad)
             print(param.grad[0][0][0])

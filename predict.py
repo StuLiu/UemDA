@@ -42,9 +42,9 @@ if __name__ == '__main__':
     warnings.filterwarnings('ignore')
 
     parser = ArgumentParser(description='Run predict methods.')
-    parser.add_argument('config-path', type=str, help='config path')
-    parser.add_argument('ckpt-path', type=str, help='ckpt path')
-    parser.add_argument('save-dir', type=str, help='save dir path')
+    parser.add_argument('config_path', type=str, help='config path')
+    parser.add_argument('ckpt_path', type=str, help='ckpt path')
+    parser.add_argument('save_dir', type=str, help='save dir path')
     parser.add_argument('--ins-norm', type=str, help='save dir path')
     args = parser.parse_args()
 

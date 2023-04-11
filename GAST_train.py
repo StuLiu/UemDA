@@ -27,7 +27,7 @@ parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='c
 parser.add_argument('--align-domain', type=str2bool, default=True, help='whether align domain or not')
 parser.add_argument('--align-class', type=str2bool, default=True, help='whether align class or not')
 parser.add_argument('--align-instance', type=str2bool, default=True, help='whether align instance or not')
-parser.add_argument('--whiten', type=str2bool, default=True, help='whether whiten or not')
+parser.add_argument('--whiten', type=str2bool, default=False, help='whether whiten or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
@@ -105,7 +105,7 @@ def main():
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
             loss_instance = 0  # aligner.align_instance(feat_s, label_s) if args.align_instance else 0
             loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + loss_instance + 0.001 * loss_whiten))
+            loss = (loss_seg + lmd_1 * (loss_domain + 0.1 * loss_instance + 1e-3 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -113,7 +113,7 @@ def main():
             optimizer.step()
             log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
                        f'loss_domain={loss_domain:.3e}, loss_instance={loss_instance:.3e} ' \
-                       f'loss_white={loss_whiten * 0.001:.3e}, ' \
+                       f'loss_white={loss_whiten:.3e}, ' \
                        f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
             aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)  # update shared prototypes
         else:
@@ -163,7 +163,7 @@ def main():
                 loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, label_t) if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
-                        lmd_1 * (loss_domain + loss_instance + 0.001 * loss_whiten) +
+                        lmd_1 * (loss_domain + 0.1 * loss_instance + 1e-3 * loss_whiten) +
                         lmd_2 * loss_class)
 
                 optimizer.zero_grad()
@@ -173,11 +173,11 @@ def main():
                 optimizer.step()
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
                            f' domain={loss_domain:.3e}, class={loss_class:.3e}, instance={loss_instance:.3e},' \
-                           f' white={loss_whiten * 0.001:.3e},' \
+                           f' white={loss_whiten:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
         # logging training process, evaluating and saving
-        if i_iter == 0 or (i_iter + 1) % 50 == 0:
+        if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
         if (i_iter + 1) % cfg.EVAL_EVERY == 0:

@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as tnf
 from module.gast.class_ware_whiten import ClassWareWhitening
 from module.gast.coral import CoralLoss
+from audtorch.metrics.functional import pearsonr
+# from module.gast.mmd import MMDLoss
 import math
 
 
@@ -22,7 +24,7 @@ class Aligner:
         self.class_num = class_num
         self.ignore_label = ignore_label
         self.logger = logger
-        self.eps = 1e-5
+        self.eps = 1e-7
 
         # prototypes for all classes
         self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
@@ -32,9 +34,10 @@ class Aligner:
 
         # criterion for domain alignment
         self.coral = CoralLoss()
+        # self.mmd = MMDLoss(kernel_type='linear')
 
         # criterion for feature whitening
-        self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=8)  # self.feat_channels // 8)
+        self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=32)  # self.feat_channels // 8)
 
     def compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         # feat, label = self._reshape_pair(feat, label)
@@ -77,19 +80,21 @@ class Aligner:
 
         # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
         loss_class = (self._class_align_loss(local_prototype_s, local_prototype_s) +
-                      self._class_align_loss(local_prototype_s, local_prototype_t))
+                      self._class_align_loss(local_prototype_s, local_prototype_t)) / 2.0
         return loss_class
 
     def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_instance = self._instance_align_loss(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
             loss_instance += self._instance_align_loss(feat_t, self.downscale_gt(label_t))
+            loss_instance /= 2.0
         return loss_instance
 
     def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
             loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
+            loss_white /= 2.0
         return loss_white
 
     def show(self, save_path=None, display=True):
@@ -108,7 +113,8 @@ class Aligner:
         assert 0 <= margin and 0 < hard_ratio <= 1
         assert prototypes_1.shape == prototypes_2.shape
         # compute distance matrix for each class pair
-        dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)  # (c, c)
+        # dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)  # (c, c), Euclidean distances
+        dist_matrix = self._pearson_dist(prototypes_1, prototypes_2)  # (c, c), pearson distances
 
         # hard example mining
         hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
@@ -121,7 +127,7 @@ class Aligner:
         # the mean distance across classes
         d_mean_neg = dist_hardest.sum() / (self.class_num * (hard_num - 1) + self.eps)
         # loss_p2p = -torch.log(1.0 + (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()))
-        loss_p2p = torch.log(1 + d_mean_pos) / torch.log(1 + d_mean_neg + self.eps)
+        loss_p2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
         return loss_p2p
 
     def _instance_align_loss(self, feat, label, margin=3, hard_ratio=0.3):
@@ -138,7 +144,8 @@ class Aligner:
         feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)
         ins_num = feat.shape[0]
         # compute the dist between instances and classes
-        dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # (b*h*w, c)
+        # dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
+        dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
 
         # compute the distances for each instance with their nearest prototypes.
         mask_pos = self._index2onehot(label)  # (b*h*w, c)
@@ -151,8 +158,37 @@ class Aligner:
         d_mean_pos = (dist_matrix * mask_pos).sum() / (ins_num + self.eps)
         d_mean_neg = dist_hardest.sum() / (ins_num * (hard_num - 1) + self.eps)
         # loss_i2p = torch.log(1.0 + max(d_mean_pos - d_mean_neg + margin, torch.FloatTensor([0]).cuda())).mean()
-        loss_i2p = torch.log(1 + d_mean_pos) / torch.log(1 + d_mean_neg + self.eps)
+        loss_i2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
         return loss_i2p
+
+    def _pearson_dist(self, feat1, feat2):
+        """
+        Compute the pearson distance between each instance
+        Args:
+            feat1: torch.FloatTensor, (n, k)
+            feat2: torch.FloatTensor, (m, k)
+
+        Returns:
+            pearson_dist: (n, m), from -1 to 1
+        """
+        assert feat1.shape[-1] == feat2.shape[-1]
+        k = feat1.shape[-1]
+        centered_feat1 = feat1 - feat1.mean(dim=-1, keepdim=True)   # (n, k)
+        centered_feat2 = feat2 - feat2.mean(dim=-1, keepdim=True)   # (m, k)
+        centered_feat1 = centered_feat1.unsqueeze(dim=1)
+        centered_feat2 = centered_feat2.unsqueeze(dim=0)
+        covariance = (centered_feat1 * centered_feat2).sum(dim=-1, keepdim=False)   # (n,  m)
+
+        bessel_corrected_covariance = covariance / (k - 1 + self.eps)   # (n,  m)
+
+        feat1_std = feat1.std(dim=-1, keepdim=False)    # (n,)
+        feat2_std = feat2.std(dim=-1, keepdim=False)    # (m,)
+        feat1_std = feat1_std.unsqueeze(dim=1)          # (n, 1)
+        feat2_std = feat2_std.unsqueeze(dim=0)          # (1 ,m)
+        div_mat = feat1_std * feat2_std                 # (n, m)
+        pearson_dist = -1.0 * bessel_corrected_covariance / (div_mat + self.eps)
+
+        return pearson_dist     # (n, m)
 
     @staticmethod
     def _ema(history, curr, decay=0.99):

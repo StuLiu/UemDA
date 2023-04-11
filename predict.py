@@ -45,7 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('config_path', type=str, help='config path')
     parser.add_argument('ckpt_path', type=str, help='ckpt path')
     parser.add_argument('save_dir', type=str, help='save dir path')
-    parser.add_argument('--ins-norm', type=str, help='save dir path')
+    parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
     args = parser.parse_args()
 
     cfg = import_config(args.config_path, copy=False)
@@ -64,6 +64,6 @@ if __name__ == '__main__':
         ),
         inchannels=2048,
         num_classes=cfg.NUM_CLASSES,
-        is_ins_norm=True,
+        is_ins_norm=args.ins_norm,
     )).cuda()
     predict_test(model, cfg, args.ckpt_path, save_dir=args.save_dir)

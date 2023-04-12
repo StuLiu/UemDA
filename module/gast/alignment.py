@@ -60,7 +60,7 @@ class Aligner:
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
 
-    def align_class(self, feat_s, label_s, feat_t, label_t):
+    def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
         """ Compute the loss for class level alignment.
             Besides, update the shared prototypes by the local prototypes of source and target domain.
         Args:
@@ -71,16 +71,20 @@ class Aligner:
         Returns:
             loss_class: the loss for class level alignment
         """
-        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
-
+        half = feat_s.shape[0] // 2
+        local_prototype_s1 = self.compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
+        local_prototype_s2 = self.compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
         local_prototype_s = self.compute_local_prototypes(feat_s, label_s, update=True)
-        local_prototype_t = self.compute_local_prototypes(feat_t, label_t, update=True)
-
-        # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
-        loss_class = (self._class_align_loss(local_prototype_s, local_prototype_s) +
-                      self._class_align_loss(local_prototype_s, local_prototype_t)) / 2.0
+        loss_inter = self._class_align_loss(local_prototype_s1, local_prototype_s2)
+        if feat_t is None or label_t is None:
+            loss_class = loss_inter
+        else:
+            local_prototype_t = self.compute_local_prototypes(feat_t, label_t, update=False)
+            # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
+            loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
+            loss_class = 0.5 * (loss_inter + loss_intra)
         return loss_class
 
     def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):

@@ -4,10 +4,10 @@ logger = logging.getLogger(__name__)
 from utils.tools import *
 from ever.util.param_util import count_model_parameters
 from module.viz import VisualizeSegmm
+from argparse import ArgumentParser
 
 
-
-def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True):
+def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, tta=False):
     #torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
     #torch.backends.cudnn.enabled = False
@@ -27,7 +27,7 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
             ret = ret.cuda()
-            cls = pre_slide(model, ret, tta=False) if slide else model(ret)
+            cls = pre_slide(model, ret, tta=tta) if slide else model(ret)
             cls = cls.argmax(dim=1).cpu().numpy()
 
             cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)
@@ -48,9 +48,18 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
 
 if __name__ == '__main__':
     seed_torch(2333)
-    ckpt_path = './log/CBST_2Urban.pth'
+
+    parser = ArgumentParser(description='Run predict methods.')
+    parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
+    parser.add_argument('--ckpt-path', type=str, default='log/GAST/2urban_c_57.67_10000_40.67/URBAN10000.pth',
+                        help='ckpt path')
+    parser.add_argument('--multi-layer', type=str2bool, default=True, help='save dir path')
+    parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
+    parser.add_argument('--tta', type=str2bool, default=True, help='save dir path')
+    args = parser.parse_args()
+
     from module.Encoder import Deeplabv2
-    cfg = import_config('st.cbst.2urban')
+    cfg = import_config(args.config_path)
     logger = get_console_file_logger(name='Baseline', logdir=cfg.SNAPSHOT_DIR)
     model = Deeplabv2(dict(
         backbone=dict(
@@ -58,7 +67,7 @@ if __name__ == '__main__':
             output_stride=16,
             pretrained=True,
         ),
-        multi_layer=False,
+        multi_layer=args.multi_layer,
         cascade=False,
         use_ppm=True,
         ppm=dict(
@@ -66,6 +75,7 @@ if __name__ == '__main__':
             use_aux=False,
         ),
         inchannels=2048,
-        num_classes=7
+        num_classes=7,
+        is_ins_norm=args.ins_norm
     )).cuda()
-    evaluate(model, cfg, False, ckpt_path, logger)
+    evaluate(model, cfg, False, args.ckpt_path, logger, tta=args.tta)

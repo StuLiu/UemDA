@@ -66,8 +66,8 @@ def main():
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
-    # eval loader (target)
-    evalloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
+    # pseudo loader (target)
+    pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
     # target loader
     targetloader = LoveDALoader(cfg.TARGET_DATA_CONFIG)
     targetloader_iter = Iterator(targetloader)
@@ -126,12 +126,13 @@ def main():
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path)
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
                 logger.info(target_config)
                 targetloader = LoveDALoader(target_config)
+
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
             torch.cuda.synchronize()

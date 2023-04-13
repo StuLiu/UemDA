@@ -15,13 +15,20 @@ source_dir = dict(
 )
 target_dir = dict(
     image_dir=[
+        './LoveDA/Train/Rural/images_png/',
+    ],
+    mask_dir=[
+        './LoveDA/Train/Rural/masks_png/',
+    ],
+)
+val_dir = dict(
+    image_dir=[
         './LoveDA/Val/Rural/images_png/',
     ],
     mask_dir=[
         './LoveDA/Val/Rural/masks_png/',
     ],
 )
-
 test_target_dir = dict(
     image_dir='./LoveDA/Test/Rural/images_png/',
     mask_dir=None
@@ -71,9 +78,25 @@ TARGET_DATA_CONFIG = dict(
     num_workers=8,
 )
 
-EVAL_DATA_CONFIG = dict(
+PSEUDO_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
     mask_dir=target_dir['mask_dir'],
+    transforms=Compose([
+        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
+                  std=(41.5113661, 35.66528876, 33.75830885),
+                  max_pixel_value=1, always_apply=True),
+        er.preprocess.albu.ToTensor()
+
+    ]),
+    CV=dict(k=10, i=-1),
+    training=False,
+    batch_size=1,
+    num_workers=8,
+)
+
+EVAL_DATA_CONFIG = dict(
+    image_dir=val_dir['image_dir'],
+    mask_dir=val_dir['mask_dir'],
     transforms=Compose([
         Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
                   std=(41.5113661, 35.66528876, 33.75830885),

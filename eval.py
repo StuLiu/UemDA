@@ -57,10 +57,10 @@ if __name__ == '__main__':
     parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
     parser.add_argument('--tta', type=str2bool, default=True, help='save dir path')
     args = parser.parse_args()
-
+    os.makedirs('')
     from module.Encoder import Deeplabv2
     cfg = import_config(args.config_path)
-    logger = get_console_file_logger(name='Baseline', logdir=cfg.SNAPSHOT_DIR)
+    logger = get_console_file_logger(name='Baseline', logdir=cfg.SNAPSHOT_DIR.replace('log/', 'log_eval/'))
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',

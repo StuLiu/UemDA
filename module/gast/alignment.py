@@ -104,7 +104,7 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
-    def _class_align_loss(self, prototypes_1, prototypes_2, margin=3, hard_ratio=0.3):
+    def _class_align_loss(self, prototypes_1, prototypes_2, margin=0.3, hard_ratio=0.3):
         """ Compute the loss between two local prototypes.
         Args:
             prototypes_1: local prototype from a batch. shape=(c, k)
@@ -130,11 +130,11 @@ class Aligner:
         d_mean_pos = torch.diag(dist_matrix).mean()
         # the mean distance across classes
         d_mean_neg = dist_hardest.sum() / (self.class_num * (hard_num - 1) + self.eps)
-        # loss_p2p = -torch.log(1.0 + (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()))
-        loss_p2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
+        # loss_p2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
+        loss_p2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
         return loss_p2p
 
-    def _instance_align_loss(self, feat, label, margin=3, hard_ratio=0.3):
+    def _instance_align_loss(self, feat, label, margin=0.3, hard_ratio=0.3):
         """Compute the loss between instances and prototypes.
         Args:
             feat: deep features outputted by backbone. shape=(b, k, h, w)
@@ -161,19 +161,19 @@ class Aligner:
         # the mean distance between instances and their prototypes
         d_mean_pos = (dist_matrix * mask_pos).sum() / (ins_num + self.eps)
         d_mean_neg = dist_hardest.sum() / (ins_num * (hard_num - 1) + self.eps)
-        # loss_i2p = torch.log(1.0 + max(d_mean_pos - d_mean_neg + margin, torch.FloatTensor([0]).cuda())).mean()
-        loss_i2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
+        loss_i2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
+        # loss_i2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
         return loss_i2p
 
     def _pearson_dist(self, feat1, feat2):
         """
-        Compute the pearson distance between each instance
+        Compute the pearson distance between the representation vector of each instance
         Args:
             feat1: torch.FloatTensor, (n, k)
             feat2: torch.FloatTensor, (m, k)
 
         Returns:
-            pearson_dist: (n, m), from -1 to 1
+            pearson_dist: (n, m), from 0 to 1
         """
         assert feat1.shape[-1] == feat2.shape[-1]
         k = feat1.shape[-1]
@@ -190,7 +190,7 @@ class Aligner:
         feat1_std = feat1_std.unsqueeze(dim=1)          # (n, 1)
         feat2_std = feat2_std.unsqueeze(dim=0)          # (1 ,m)
         div_mat = feat1_std * feat2_std                 # (n, m)
-        pearson_dist = -1.0 * bessel_corrected_covariance / (div_mat + self.eps)
+        pearson_dist = (-1.0 * bessel_corrected_covariance / (div_mat + self.eps) + 1.0) * 0.5
 
         return pearson_dist     # (n, m)
 

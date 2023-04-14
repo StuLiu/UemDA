@@ -104,8 +104,9 @@ def main():
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
             loss_class = aligner.align_class(feat_s, label_s) if args.align_class else 0
+            loss_instance = aligner.align_instance(feat_s, label_s) if args.align_instance else 0
             loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_whiten))
+            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_instance + loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -113,7 +114,7 @@ def main():
             optimizer.step()
             log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
                        f'loss_domain={loss_domain:.3e}, loss_class={loss_class:.3e} ' \
-                       f'loss_white={loss_whiten:.3e}, ' \
+                       f'loss_instance={loss_instance:.3e}, loss_white={loss_whiten:.3e}, ' \
                        f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
             # aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)  # update shared prototypes
         else:
@@ -193,7 +194,7 @@ def main():
             break
 
 
-def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=True):
+def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path, slide=True):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -202,7 +203,7 @@ def gener_target_pseudo(_cfg, model, evalloader, save_pseudo_label_path, slide=T
     viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
 
     with torch.no_grad():
-        for ret, ret_gt in tqdm(evalloader):
+        for ret, ret_gt in tqdm(pseudo_loader):
             ret = ret.cuda()
 
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)

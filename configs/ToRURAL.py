@@ -15,10 +15,10 @@ source_dir = dict(
 )
 target_dir = dict(
     image_dir=[
-        './LoveDA/Val/Rural/images_png/'
+        './LoveDA/Val/Rural/images_png/',
     ],
     mask_dir=[
-        None,
+        './LoveDA/Val/Rural/masks_png/',
     ],
 )
 val_dir = dict(

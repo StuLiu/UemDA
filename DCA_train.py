@@ -27,8 +27,8 @@ from skimage.io import imsave, imread
 from module.viz import VisualizeSegmm
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
-parser = argparse.ArgumentParser(description='Run MY methods.')
-parser.add_argument('--config-path', type=str, default='st.dca.2rural',
+parser = argparse.ArgumentParser(description='Run DCA methods.')
+parser.add_argument('--config-path', type=str, default='st.dca.2urban',
                     help='config path')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -39,7 +39,7 @@ def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(save_pseudo_label_path, exist_ok=True)
 
-    logger = get_console_file_logger(name='MY', logdir=cfg.SNAPSHOT_DIR)
+    logger = get_console_file_logger(name='DCA', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
 
     cudnn.enabled = True
@@ -66,7 +66,7 @@ def main():
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
     # eval loader (target)
-    evalloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
+    pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
     # target loader
     targetloader = None
     targetloader_iter = None
@@ -122,7 +122,7 @@ def main():
             if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path)
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
@@ -195,7 +195,7 @@ def main():
                     model.train()
 
 
-def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, slide=True):
+def gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, slide=True):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -204,7 +204,7 @@ def gener_target_pseudo(cfg, model, evalloader, save_pseudo_label_path, slide=Tr
     viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
 
     with torch.no_grad():
-        for ret, ret_gt in tqdm(evalloader):
+        for ret, ret_gt in tqdm(pseudo_loader):
             ret = ret.to(torch.device('cuda'))
 
             # cls = model(ret)

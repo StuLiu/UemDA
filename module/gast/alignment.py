@@ -40,7 +40,17 @@ class Aligner:
         self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=32)  # self.feat_channels // 8)
 
     def compute_local_prototypes(self, feat, label, update=False, decay=0.99):
-        # feat, label = self._reshape_pair(feat, label)
+        """Compute prototypes within a mini-batch
+        Args:
+            feat: torch.Tensor, mini-batch features, shape=(b, k, h, w)
+            label: torch.Tensor, label(the gt or pseudo label, instead of logits), shape=(b, 1, h, w) or (b, h, w)
+            update: bool, if update the global prototypes
+            decay: float in (0, 1), the parameter for ema algorithm. the higher, update slower.
+
+        Returns:
+            local_prototype: class prototypes within a mini-batch. shape=(c, k)
+        """
+        assert decay > 0 and decay < 1
         b, k, h, w = feat.shape
         feats = feat.permute(0, 2, 3, 1).reshape(-1, k)     # (b*h*w, k)
         feats = feats.view(-1, 1, k)                        # (b*h*w, 1, k)
@@ -48,11 +58,12 @@ class Aligner:
         labels = self.downscale_gt(label)       # (b, 32*h, 32*w) -> (b, 1, h, w)
         labels = self._index2onehot(labels)     # (b, 1, h, w) -> (b*h*w, c)
         labels = labels.view(-1, self.class_num, 1)                             # (b*h*w, c, 1)
+
         n_instance = labels.sum(0).expand(self.class_num, k)                    # (c, k)
-        # local_prototype = self._get_local_prototypes(feat, label)
         local_prototype = (feats * labels).sum(0) / (n_instance + self.eps)     # (c, k)
-        # 可能会生成0向量，参与类别对齐可能导致退化，降低模型性能
-        local_prototype = torch.where(n_instance == 0, self.prototypes, local_prototype)
+        # 某些类别无样本，可能会生成0向量，参与类别对齐将导致退化，降低模型性能
+        local_prototype = torch.where(n_instance < 1, self.prototypes, local_prototype)
+
         if update:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
         return local_prototype

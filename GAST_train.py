@@ -106,7 +106,7 @@ def main():
             loss_class = aligner.align_class(feat_s, label_s) if args.align_class else 0
             loss_instance = aligner.align_instance(feat_s, label_s) if args.align_instance else 0
             loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_instance + loss_whiten))
+            loss = (loss_seg + lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -165,7 +165,7 @@ def main():
                 loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, label_t) if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
-                        lmd_1 * (loss_domain + loss_class + loss_instance + loss_whiten))
+                        lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
 
                 optimizer.zero_grad()
                 loss.backward()

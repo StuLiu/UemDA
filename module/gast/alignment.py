@@ -42,13 +42,17 @@ class Aligner:
     def compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         # feat, label = self._reshape_pair(feat, label)
         b, k, h, w = feat.shape
-        labels = self.downscale_gt(label)  # (b, 32*h, 32*w) -> (b, 1, h, w)
-        labels = self._index2onehot(labels)  # (b, 1, h, w) -> (b, c, h, w)
-        feats = feat.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
-        feats = feats.view(-1, 1, k)  # (b*h*w, 1, k)
-        labels = labels.view(-1, self.class_num, 1)  # (b*h*w, c, 1)
+        feats = feat.permute(0, 2, 3, 1).reshape(-1, k)     # (b*h*w, k)
+        feats = feats.view(-1, 1, k)                        # (b*h*w, 1, k)
+
+        labels = self.downscale_gt(label)       # (b, 32*h, 32*w) -> (b, 1, h, w)
+        labels = self._index2onehot(labels)     # (b, 1, h, w) -> (b*h*w, c)
+        labels = labels.view(-1, self.class_num, 1)                             # (b*h*w, c, 1)
+        n_instance = labels.sum(0).expand(self.class_num, k)                    # (c, k)
         # local_prototype = self._get_local_prototypes(feat, label)
-        local_prototype = (feats * labels).sum(0) / (labels.sum(0) + self.eps)
+        local_prototype = (feats * labels).sum(0) / (n_instance + self.eps)     # (c, k)
+        # 可能会生成0向量，参与类别对齐可能导致退化，降低模型性能
+        local_prototype = torch.where(n_instance == 0, self.prototypes, local_prototype)
         if update:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
         return local_prototype
@@ -130,7 +134,7 @@ class Aligner:
         d_mean_pos = torch.diag(dist_matrix).mean()
         # the mean distance across classes
         d_mean_neg = dist_hardest.sum() / (self.class_num * (hard_num - 1) + self.eps)
-        # loss_p2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
+        # loss_p2p = d_mean_pos / (d_mean_neg + self.eps)
         loss_p2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
         return loss_p2p
 
@@ -162,7 +166,7 @@ class Aligner:
         d_mean_pos = (dist_matrix * mask_pos).sum() / (ins_num + self.eps)
         d_mean_neg = dist_hardest.sum() / (ins_num * (hard_num - 1) + self.eps)
         loss_i2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
-        # loss_i2p = (1 + d_mean_pos) / (1 + d_mean_neg + self.eps)
+        # loss_i2p = d_mean_pos / (1 + d_mean_neg + self.eps)
         return loss_i2p
 
     def _pearson_dist(self, feat1, feat2):

@@ -77,12 +77,13 @@ if __name__ == '__main__':
                         help='ckpt path')
     parser.add_argument('--multi-layer', type=str2bool, default=True, help='save dir path')
     parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
-    parser.add_argument('--tta', type=str2bool, default=True, help='save dir path')
+    parser.add_argument('--tta', type=str2bool, default=False, help='save dir path')
     args = parser.parse_args()
-    os.makedirs('')
     from module.Encoder import Deeplabv2
-    cfg = import_config(args.config_path)
-    logger = get_console_file_logger(name='Baseline', logdir=cfg.SNAPSHOT_DIR.replace('log/', 'log_eval/'))
+    cfg = import_config(args.config_path, copy=False, create=False)
+    log_dir = os.path.dirname(args.ckpt_path)
+    cfg.SNAPSHOT_DIR = log_dir
+    logger = get_console_file_logger(name='Baseline', logdir=log_dir)
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',

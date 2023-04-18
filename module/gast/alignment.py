@@ -20,13 +20,23 @@ import math
 class Aligner:
 
     def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1):
+
+        # channel number of feature maps
         self.feat_channels = feat_channels
+
+        # the number of class in datasets
         self.class_num = class_num
+
+        # the id of the ignored label
         self.ignore_label = ignore_label
+
+        # logging.logger for logging
         self.logger = logger
+
+        # small float to avoid dividing 0.
         self.eps = 1e-7
 
-        # prototypes for all classes
+        # prototypes for all classes. Note that, the prototypes is computed by source features only.
         self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         # downscale for gt label with full size
@@ -59,6 +69,8 @@ class Aligner:
         """
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
+        label_s = self.downscale_gt(label_s)  # (b, 32*h, 32*w) -> (b, 1, h, w)
+        label_t = self.downscale_gt(label_t)  # (b, 32*h, 32*w) -> (b, 1, h, w)
         half = feat_s.shape[0] // 2
         local_prototype_s1 = self._compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
         local_prototype_s2 = self._compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
@@ -67,6 +79,7 @@ class Aligner:
         if feat_t is None or label_t is None:
             loss_class = loss_inter
         else:
+            label_t = self._pseudo_label_refine(feat_t, label_t)
             local_prototype_t = self._compute_local_prototypes(feat_t, label_t, update=False)
             # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
             loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
@@ -74,9 +87,12 @@ class Aligner:
         return loss_class
 
     def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
-        loss_instance = self._instance_align_loss(feat_s, self.downscale_gt(label_s))
+        label_s = self.downscale_gt(label_s)
+        loss_instance = self._instance_align_loss(feat_s, label_s)
         if feat_t is not None and label_t is not None:
-            loss_instance += self._instance_align_loss(feat_t, self.downscale_gt(label_t))
+            label_t = self.downscale_gt(label_t)
+            label_t = self._pseudo_label_refine(feat_t, label_t)
+            loss_instance += self._instance_align_loss(feat_t, label_t)
             loss_instance /= 2.0
         return loss_instance
 
@@ -90,24 +106,40 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
+    def _pseudo_label_refine(self, feat_t, label_t):
+        """Refine the pseudo label online by the outputted features and prototypes
+        Args:
+            feat_t: torch.Tensor, features of target domain, shape=(b, k, h, w)
+            label_t: torch.Tensor, hard pseudo labels, shape=(b, 1, h, w)
+
+        Returns:
+            label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
+        """
+        b, k, h, w = feat_t.shape
+        feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
+        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)     # (b*h*w, c)
+        _, label_online = torch.min(dist_pear, dim=1)
+        label_online = label_online.view(b, 1, h, w)       # (b, 1, h, w)
+        label_refined = torch.where(label_online == label_t, label_t, -1)
+        return label_refined
+
     def _compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         """Compute prototypes within a mini-batch
         Args:
             feat: torch.Tensor, mini-batch features, shape=(b, k, h, w)
-            label: torch.Tensor, label(the gt or pseudo label, instead of logits), shape=(b, 1, h, w) or (b, h, w)
+            label: torch.Tensor, label(the gt or pseudo label, instead of logits), shape=(b, 1, h, w)
             update: bool, if update the global prototypes
             decay: float in (0, 1), the parameter for ema algorithm. the higher, update slower.
 
         Returns:
             local_prototype: class prototypes within a mini-batch. shape=(c, k)
         """
-        assert decay > 0 and decay < 1
+        assert 0 < decay < 1
         b, k, h, w = feat.shape
         feats = feat.permute(0, 2, 3, 1).reshape(-1, k)     # (b*h*w, k)
         feats = feats.view(-1, 1, k)                        # (b*h*w, 1, k)
 
-        labels = self.downscale_gt(label)       # (b, 32*h, 32*w) -> (b, 1, h, w)
-        labels = self._index2onehot(labels)     # (b, 1, h, w) -> (b*h*w, c)
+        labels = self._index2onehot(label)     # (b, 1, h, w) -> (b*h*w, c)
         labels = labels.view(-1, self.class_num, 1)                             # (b*h*w, c, 1)
 
         n_instance = labels.sum(0).expand(self.class_num, k)                    # (c, k)

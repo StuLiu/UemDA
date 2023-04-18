@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as tnf
 from module.gast.class_ware_whiten import ClassWareWhitening
 from module.gast.coral import CoralLoss
-from audtorch.metrics.functional import pearsonr
+# from audtorch.metrics.functional import pearsonr
 # from module.gast.mmd import MMDLoss
 import math
 
@@ -39,7 +39,58 @@ class Aligner:
         # criterion for feature whitening
         self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=32)  # self.feat_channels // 8)
 
-    def compute_local_prototypes(self, feat, label, update=False, decay=0.99):
+    def align_domain(self, feat_s, feat_t):
+        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
+        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
+        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
+        return self.coral(feat_s, feat_t)
+
+    def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
+        """ Compute the loss for class level alignment.
+            Besides, update the shared prototypes by the local prototypes of source and target domain.
+        Args:
+            feat_s:  features from source, shape as (b, k, h, w)
+            label_s: labels from source  , shape as (b, 32*h, 32*w)
+            feat_t:  features from source, shape as (b, k, h, w)
+            label_t: pseudo labels from target, shape as (b, 32*h, 32*w)
+        Returns:
+            loss_class: the loss for class level alignment
+        """
+        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
+        assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
+        half = feat_s.shape[0] // 2
+        local_prototype_s1 = self._compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
+        local_prototype_s2 = self._compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
+        local_prototype_s = self._compute_local_prototypes(feat_s, label_s, update=True)
+        loss_inter = self._class_align_loss(local_prototype_s1, local_prototype_s2)
+        if feat_t is None or label_t is None:
+            loss_class = loss_inter
+        else:
+            local_prototype_t = self._compute_local_prototypes(feat_t, label_t, update=False)
+            # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
+            loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
+            loss_class = 0.5 * (loss_inter + loss_intra)
+        return loss_class
+
+    def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
+        loss_instance = self._instance_align_loss(feat_s, self.downscale_gt(label_s))
+        if feat_t is not None and label_t is not None:
+            loss_instance += self._instance_align_loss(feat_t, self.downscale_gt(label_t))
+            loss_instance /= 2.0
+        return loss_instance
+
+    def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
+        loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
+        if feat_t is not None and label_t is not None:
+            loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
+            loss_white /= 2.0
+        return loss_white
+
+    def show(self, save_path=None, display=True):
+        pass
+
+    def _compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         """Compute prototypes within a mini-batch
         Args:
             feat: torch.Tensor, mini-batch features, shape=(b, k, h, w)
@@ -67,57 +118,6 @@ class Aligner:
         if update:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
         return local_prototype
-
-    def align_domain(self, feat_s, feat_t):
-        assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
-        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        feat_s = feat_s.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
-        feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
-        return self.coral(feat_s, feat_t)
-
-    def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
-        """ Compute the loss for class level alignment.
-            Besides, update the shared prototypes by the local prototypes of source and target domain.
-        Args:
-            feat_s:  features from source, shape as (b, k, h, w)
-            label_s: labels from source  , shape as (b, 32*h, 32*w)
-            feat_t:  features from source, shape as (b, k, h, w)
-            label_t: pseudo labels from target, shape as (b, 32*h, 32*w)
-        Returns:
-            loss_class: the loss for class level alignment
-        """
-        assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
-        assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
-        half = feat_s.shape[0] // 2
-        local_prototype_s1 = self.compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
-        local_prototype_s2 = self.compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
-        local_prototype_s = self.compute_local_prototypes(feat_s, label_s, update=True)
-        loss_inter = self._class_align_loss(local_prototype_s1, local_prototype_s2)
-        if feat_t is None or label_t is None:
-            loss_class = loss_inter
-        else:
-            local_prototype_t = self.compute_local_prototypes(feat_t, label_t, update=False)
-            # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
-            loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
-            loss_class = 0.5 * (loss_inter + loss_intra)
-        return loss_class
-
-    def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
-        loss_instance = self._instance_align_loss(feat_s, self.downscale_gt(label_s))
-        if feat_t is not None and label_t is not None:
-            loss_instance += self._instance_align_loss(feat_t, self.downscale_gt(label_t))
-            loss_instance /= 2.0
-        return loss_instance
-
-    def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
-        loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
-        if feat_t is not None and label_t is not None:
-            loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
-            loss_white /= 2.0
-        return loss_white
-
-    def show(self, save_path=None, display=True):
-        pass
 
     def _class_align_loss(self, prototypes_1, prototypes_2, margin=0.3, hard_ratio=0.3):
         """ Compute the loss between two local prototypes.
@@ -215,6 +215,12 @@ class Aligner:
         return new_average
 
     def _index2onehot(self, label):
+        """Compute the one-hot label
+        Args:
+            label: torch.Tensor, gt or pseudo label, shape=(b, 1, h, w)
+        Returns:
+            labels: (b*h*w, c)
+        """
         labels = label.clone()
         labels = labels.permute(0, 2, 3, 1).reshape(-1, 1)  # (b*h*w, 1)
         labels[labels == self.ignore_label] = self.class_num

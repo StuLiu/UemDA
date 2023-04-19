@@ -22,7 +22,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
         mask: torch.Tensor, shape=(b, c, h, w)
         cutoff_top:
         cutoff_low:
-
+        return_type
     Returns:
 
     """
@@ -78,4 +78,3 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path, slid
             if _cfg.SNAPSHOT_DIR is not None:
                 for fname, pred in zip(ret_gt['fname'], cls):
                     viz_op(pred, fname.replace('tif', 'png'))
-

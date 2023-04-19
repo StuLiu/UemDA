@@ -64,7 +64,7 @@ class Aligner:
             feat_s:  features from source, shape as (b, k, h, w)
             label_s: labels from source  , shape as (b, 32*h, 32*w)
             feat_t:  features from source, shape as (b, k, h, w)
-            label_t: pseudo labels from target, shape as (b, 32*h, 32*w)
+            label_t: pseudo label, Tensor, shape as (b, h, w)
         Returns:
             loss_class: the loss for class level alignment
         """
@@ -79,10 +79,7 @@ class Aligner:
         if feat_t is None or label_t is None:
             loss_class = loss_inter
         else:
-            label_t = self.downscale_gt(label_t)    # (b, 32*h, 32*w) -> (b, 1, h, w)
-            label_t = self._pseudo_label_refine(feat_t, label_t)
-            local_prototype_t = self._compute_local_prototypes(feat_t, label_t, update=False)
-            # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')
+            local_prototype_t = self._compute_local_prototypes(feat_t, label_t.unsqueeze(dim=1), update=False)
             loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
             loss_class = 0.5 * (loss_inter + loss_intra)
         return loss_class
@@ -91,16 +88,14 @@ class Aligner:
         label_s = self.downscale_gt(label_s)
         loss_instance = self._instance_align_loss(feat_s, label_s)
         if feat_t is not None and label_t is not None:
-            label_t = self.downscale_gt(label_t)
-            label_t = self._pseudo_label_refine(feat_t, label_t)
-            loss_instance += self._instance_align_loss(feat_t, label_t)
+            loss_instance += self._instance_align_loss(feat_t, label_t.unsqueeze(dim=1))
             loss_instance /= 2.0
         return loss_instance
 
     def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
-            loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
+            loss_white += self.whitener(feat_t, label_t.unsqueeze(dim=1))
             loss_white /= 2.0
         return loss_white
 
@@ -124,11 +119,11 @@ class Aligner:
         label_refined = torch.where(label_online == label_t, label_t, self.ignore_label)
         return label_refined
 
-    def _pseudo_label_refine(self, preds, feat_t):
+    def pseudo_label_refine(self, feat_t, preds_t):
         """Refine the pseudo label online by the outputted features and prototypes
         Args:
             feat_t: torch.Tensor, features of target domain, shape=(b, k, h, w)
-            label_t: torch.Tensor, hard pseudo labels, shape=(b, 1, h, w)
+            preds_t: torch.Tensor or list, (b, c, h, w)
 
         Returns:
             label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
@@ -137,13 +132,13 @@ class Aligner:
         feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
         dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)   # (b*h*w, c), range=(0, 1)
         logits_prototype = torch.softmax(1.0 - dist_pear, dim=1)            # (b*h*w, c)
-        logits_prototype = logits_prototype.reshape(b, h, w, c).permute(0, 3, 1, 2)     # (b, c, h, w)
-        if isinstance(preds, list):
-            preds = (preds[0] + preds[1]) / 2
-        logits_preds = torch.softmax(preds, dim=1)                                  # (b, c, h, w)
+        logits_prototype = logits_prototype.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)     # (b, c, h, w)
+        if isinstance(preds_t, list):
+            preds_t = (preds_t[0] + preds_t[1]) / 2
+        logits_preds = torch.softmax(preds_t, dim=1)                                # (b, c, h, w)
         logits_online = torch.softmax(logits_prototype * logits_preds, dim=1)       # (b, c, h, w)
-        pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6)
-        return pseudo_label_online
+        pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        return pseudo_label_online                                                  # (b, h, w)
         # label_online = label_online.unsqueeze(dim=1)                                # (b, 1, h, w)
         # ign = torch.Tensor([self.ignore_label]).cuda()[0]
         # label_refined = torch.where(label_online == label_t, label_t, ign)
@@ -352,7 +347,8 @@ if __name__ == '__main__':
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
-        _, _, f_t = model(x_t)
+        p_1, p_2, f_t = model(x_t)
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
         _loss_white = aligner.whiten_class_ware(f_s, l_s, f_t, l_t)
         print(_loss_white.cpu().item(), '\t', i)
         optimizer.zero_grad()
@@ -382,7 +378,8 @@ if __name__ == '__main__':
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
-        _, _, f_t = model(x_t)
+        p_1, p_2, f_t = model(x_t)
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
         _loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
         print(_loss_class)
         optimizer.zero_grad()
@@ -397,7 +394,8 @@ if __name__ == '__main__':
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
-        _, _, f_t = model(x_t)
+        p_1, p_2, f_t = model(x_t)
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
         _loss_ins = aligner.align_instance(f_s, l_s, f_t, l_t)
         print(_loss_ins)
         optimizer.zero_grad()

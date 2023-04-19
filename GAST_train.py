@@ -26,10 +26,10 @@ from module.gast.pseudo_generation import gener_target_pseudo
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
-parser.add_argument('--align-domain', type=str2bool, default=False, help='whether align domain or not')
-parser.add_argument('--align-class', type=str2bool, default=False, help='whether align class or not')
-parser.add_argument('--align-instance', type=str2bool, default=False, help='whether align instance or not')
-parser.add_argument('--whiten', type=str2bool, default=False, help='whether whiten or not')
+parser.add_argument('--align-domain', type=str2bool, default=1, help='whether align domain or not')
+parser.add_argument('--align-class', type=str2bool, default=1, help='whether align class or not')
+parser.add_argument('--align-instance', type=str2bool, default=1, help='whether align instance or not')
+parser.add_argument('--whiten', type=str2bool, default=1, help='whether whiten or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
@@ -158,13 +158,17 @@ def main():
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
+                if args.align_class or args.align_instance or args.whiten:
+                    pseudo_label_online = aligner.pseudo_label_refine(feat_t, [pred_t1, pred_t2])
+                else:
+                    pseudo_label_online = None
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss_class = aligner.align_class(feat_s, label_s, feat_t, label_t) if args.align_class else 0
-                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, label_t) if args.align_instance else 0
-                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, label_t) if args.whiten else 0
+                loss_class = aligner.align_class(feat_s, label_s, feat_t, pseudo_label_online) if args.align_class else 0
+                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, pseudo_label_online) if args.align_instance else 0
+                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) if args.whiten else 0
                 lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
                         lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))

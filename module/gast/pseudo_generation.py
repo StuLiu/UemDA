@@ -15,7 +15,7 @@ from utils.tools import *
 from module.viz import VisualizeSegmm
 
 
-def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6):
+def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'):
     """
     Convert continuous mask into binary mask
     Args:
@@ -26,6 +26,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6):
     Returns:
 
     """
+    assert return_type in ['ndarray', 'tensor']
     assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())
     bs, c, h, w = mask.size()
     mask = mask.view(bs, c, -1)
@@ -44,8 +45,11 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6):
 
     pseudo_gt = pseudo_gt.argmax(dim=1, keepdim=True)
     pseudo_gt[ambiguous == 1] = -1
-
-    return pseudo_gt.view(bs, h, w).cpu().numpy()
+    if return_type == 'ndarray':
+        ret = pseudo_gt.view(bs, h, w).cpu().numpy()
+    else:
+        ret = pseudo_gt.view(bs, h, w)
+    return ret
 
 
 def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path, slide=True):

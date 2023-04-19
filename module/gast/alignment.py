@@ -70,7 +70,6 @@ class Aligner:
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
         label_s = self.downscale_gt(label_s)  # (b, 32*h, 32*w) -> (b, 1, h, w)
-        label_t = self.downscale_gt(label_t)  # (b, 32*h, 32*w) -> (b, 1, h, w)
         half = feat_s.shape[0] // 2
         local_prototype_s1 = self._compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
         local_prototype_s2 = self._compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
@@ -79,6 +78,7 @@ class Aligner:
         if feat_t is None or label_t is None:
             loss_class = loss_inter
         else:
+            label_t = self.downscale_gt(label_t)  # (b, 32*h, 32*w) -> (b, 1, h, w)
             label_t = self._pseudo_label_refine(feat_t, label_t)
             local_prototype_t = self._compute_local_prototypes(feat_t, label_t, update=False)
             # loss_class = tnf.mse_loss(local_prototype_s, local_prototype_t, reduction='mean')

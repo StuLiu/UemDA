@@ -95,7 +95,7 @@ class Aligner:
     def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
-            loss_white += self.whitener(feat_t, label_t.unsqueeze(dim=1))
+            loss_white += self.whitener(feat_t, label_t)
             loss_white *= 0.5
         return loss_white
 
@@ -119,29 +119,30 @@ class Aligner:
     #     label_refined = torch.where(label_online == label_t, label_t, self.ignore_label)
     #     return label_refined
 
-    def pseudo_label_refine(self, feat_t, preds_t):
+    def pseudo_label_refine(self, feat_t, preds_t, label_t):
         """Refine the pseudo label online by the outputted features and prototypes
         Args:
             feat_t: torch.Tensor, features of target domain, shape=(b, k, h, w)
             preds_t: torch.Tensor or list, (b, c, h, w)
-
+            label_t: torch.Tensor, shape=(b, 32*h, 32*w)
         Returns:
             label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
         """
-        b, k, h, w = feat_t.shape
-        feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
-        weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
-        weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
-        if isinstance(preds_t, list):
-            preds_t = (preds_t[0] + preds_t[1]) * 0.5
-        logits_online = torch.softmax(weight * preds_t, dim=1)                  # (b, c, h, w)
-        pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
-        return pseudo_label_online                                              # (b, h, w)
-        # label_online = label_online.unsqueeze(dim=1)                                # (b, 1, h, w)
-        # ign = torch.Tensor([self.ignore_label]).cuda()[0]
+        return self.downscale_gt(label_t).squeeze(dim=1)
+        # b, k, h, w = feat_t.shape
+        # feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
+        # dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
+        # weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
+        # weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
+        # if isinstance(preds_t, list):
+        #     preds_t = (preds_t[0] + preds_t[1]) * 0.5
+        # preds_t = torch.softmax(preds_t, dim=1)                                 # (b, c, h, w)
+        # _, label_online = torch.max(weight * preds_t, dim=1)                    # (b, h, w)
+        # # pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        # label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
+        # ign = torch.LongTensor([self.ignore_label]).cuda()[0]
         # label_refined = torch.where(label_online == label_t, label_t, ign)
-        # return label_refined
+        # return label_refined                                                    # (b, h, w)
 
     def _compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         """Compute prototypes within a mini-batch
@@ -157,10 +158,10 @@ class Aligner:
         assert 0 < decay < 1
         b, k, h, w = feat.shape
         feats = feat.permute(0, 2, 3, 1).reshape(-1, k)     # (b*h*w, k)
-        feats = feats.view(-1, 1, k)                        # (b*h*w, 1, k)
+        feats = feats.unsqueeze(dim=1)                      # (b*h*w, 1, k)
 
-        labels = self._index2onehot(label)     # (b, 1, h, w) -> (b*h*w, c)
-        labels = labels.view(-1, self.class_num, 1)                             # (b*h*w, c, 1)
+        labels = self._index2onehot(label)                  # (b, 1, h, w) -> (b*h*w, c)
+        labels = labels.unsqueeze(dim=-1)                   # (b*h*w, c, 1)
 
         n_instance = labels.sum(0).expand(self.class_num, k)                    # (c, k)
         local_prototype = (feats * labels).sum(0) / (n_instance + self.eps)     # (c, k)
@@ -187,17 +188,15 @@ class Aligner:
         dist_matrix = self._pearson_dist(prototypes_1, prototypes_2)  # (c, c), pearson distances
 
         # hard example mining
-        hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
-        eye_neg = 1 - torch.eye(self.class_num).cuda()
-        dist_sorted, _ = torch.sort(dist_matrix * eye_neg, dim=1, descending=False)
-        dist_hardest = dist_sorted[:, : hard_num]  # (c, hard_num)
+        hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)      # int
+        eye_neg = 1 - torch.eye(self.class_num).cuda()                                  # 1 - I, (c, c)
+        dist_hardest, _ = torch.topk(dist_matrix * eye_neg, k=hard_num, dim=1, largest=False)   # (c, hard_num)
 
-        # the mean distance between the same classes
-        d_mean_pos = torch.diag(dist_matrix)
-        # the mean distance across classes
-        d_mean_neg = dist_hardest.sum(dim=1) / ((hard_num - 1) + self.eps)
+        d_pos = torch.diag(dist_matrix).unsqueeze(dim=-1)   # (c, 1)
+        d_neg = dist_hardest[:, 1:]                         # (c, hard_num - 1)
         # loss_p2p = d_mean_pos / (d_mean_neg + self.eps)
-        loss_p2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
+        loss_p2p = (d_pos - d_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
+
         return loss_p2p.mean()
 
     def _instance_align_loss(self, feat, label, margin=0.3, hard_ratio=0.3):
@@ -215,19 +214,20 @@ class Aligner:
         # compute the dist between instances and classes
         # dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
         dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
+        mask_pos = self._index2onehot(label)    # (b*h*w, c)
+        mask_neg = 1 - mask_pos                 # (b*h*w, c)
 
         # compute the distances for each instance with their nearest prototypes.
-        mask_pos = self._index2onehot(label)  # (b*h*w, c)
-        mask_neg = 1 - mask_pos  # (b*h*w, c)
         hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
-        dist_sorted, _ = torch.sort(dist_matrix * mask_neg, dim=1, descending=False)
-        dist_hardest = dist_sorted[:, : hard_num]
+        dist_hardest, _ = torch.topk(dist_matrix * mask_neg, k=hard_num, dim=1, largest=False)
 
         # the mean distance between instances and their prototypes
-        d_mean_pos = (dist_matrix * mask_pos).sum(dim=1)
-        d_mean_neg = dist_hardest.sum(dim=1) / ((hard_num - 1) + self.eps)
+        # d_mean_pos = (dist_matrix * mask_pos).sum(dim=1)
+        # d_mean_neg = dist_hardest.sum(dim=1) / ((hard_num - 1) + self.eps)
+        d_pos = torch.sum(dist_matrix * mask_pos, dim=1, keepdim=True)     # (b*h*w, 1)
+        d_neg = dist_hardest[:, 1:]                                 # (b*h*w, hard_num - 1)
         # loss_i2p = d_mean_pos / (d_mean_neg + self.eps)
-        loss_i2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
+        loss_i2p = (d_pos - d_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
         return loss_i2p.mean()
 
     def _pearson_dist(self, feat1, feat2):
@@ -345,7 +345,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
         _loss_white = aligner.whiten_class_ware(f_s, l_s, f_t, l_t)
         print(_loss_white.cpu().item(), '\t', i)
         optimizer.zero_grad()
@@ -376,7 +376,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
         _loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
         print(_loss_class)
         optimizer.zero_grad()
@@ -392,7 +392,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2])
+        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
         _loss_ins = aligner.align_instance(f_s, l_s, f_t, l_t)
         print(_loss_ins)
         optimizer.zero_grad()

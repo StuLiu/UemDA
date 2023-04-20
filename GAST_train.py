@@ -159,7 +159,7 @@ def main():
                 pred_t1, pred_t2, feat_t = model(images_t)
 
                 if args.align_class or args.align_instance or args.whiten:
-                    pseudo_label_online = aligner.pseudo_label_refine(feat_t, [pred_t1, pred_t2])
+                    pseudo_label_online = aligner.pseudo_label_refine(feat_t, [pred_t1, pred_t2], label_t)
                 else:
                     pseudo_label_online = None
 
@@ -205,5 +205,6 @@ def main():
 
 
 if __name__ == '__main__':
-    seed_torch(int(time.time()) % 10000019)
+    # seed_torch(int(time.time()) % 10000019)
+    seed_torch(2333)
     main()

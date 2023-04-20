@@ -50,6 +50,8 @@ class Aligner:
         # criterion for feature whitening
         self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=32)  # self.feat_channels // 8)
 
+        self.margin = 1.0/self.class_num
+
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
@@ -80,7 +82,7 @@ class Aligner:
             loss_class = loss_inter
         else:
             local_prototype_t = self._compute_local_prototypes(feat_t, label_t.unsqueeze(dim=1), update=False)
-            loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
+            loss_intra = self._class_align_loss(local_prototype_s.detach(), local_prototype_t)
             loss_class = 0.5 * (loss_inter + loss_intra)
         return loss_class
 
@@ -89,14 +91,14 @@ class Aligner:
         loss_instance = self._instance_align_loss(feat_s, label_s)
         if feat_t is not None and label_t is not None:
             loss_instance += self._instance_align_loss(feat_t, label_t.unsqueeze(dim=1))
-            loss_instance /= 2.0
+            loss_instance *= 0.5
         return loss_instance
 
     def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
             loss_white += self.whitener(feat_t, label_t.unsqueeze(dim=1))
-            loss_white /= 2.0
+            loss_white *= 0.5
         return loss_white
 
     def show(self, save_path=None, display=True):
@@ -130,15 +132,14 @@ class Aligner:
         """
         b, k, h, w = feat_t.shape
         feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)   # (b*h*w, c), range=(0, 1)
-        logits_prototype = torch.softmax(1.0 - dist_pear, dim=1)            # (b*h*w, c)
-        logits_prototype = logits_prototype.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)     # (b, c, h, w)
+        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
+        weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
+        weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
         if isinstance(preds_t, list):
-            preds_t = (preds_t[0] + preds_t[1]) / 2
-        logits_preds = torch.softmax(preds_t, dim=1)                                # (b, c, h, w)
-        logits_online = torch.softmax(logits_prototype * logits_preds, dim=1)       # (b, c, h, w)
-        pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
-        return pseudo_label_online                                                  # (b, h, w)
+            preds_t = (preds_t[0] + preds_t[1]) * 0.5
+        logits_online = torch.softmax(weight * preds_t, dim=1)                  # (b, c, h, w)
+        pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.6, cutoff_low=0.5, return_type='tensor')
+        return pseudo_label_online                                              # (b, h, w)
         # label_online = label_online.unsqueeze(dim=1)                                # (b, 1, h, w)
         # ign = torch.Tensor([self.ignore_label]).cuda()[0]
         # label_refined = torch.where(label_online == label_t, label_t, ign)
@@ -172,7 +173,7 @@ class Aligner:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
         return local_prototype
 
-    def _class_align_loss(self, prototypes_1, prototypes_2, margin=0.3, hard_ratio=0.3):
+    def _class_align_loss(self, prototypes_1, prototypes_2, hard_ratio=0.3):
         """ Compute the loss between two local prototypes.
         Args:
             prototypes_1: local prototype from a batch. shape=(c, k)
@@ -182,7 +183,6 @@ class Aligner:
         Returns:
             loss_2p: loss for two local prototypes.
         """
-        assert 0 <= margin and 0 < hard_ratio <= 1
         assert prototypes_1.shape == prototypes_2.shape
         # compute distance matrix for each class pair
         # dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)  # (c, c), Euclidean distances
@@ -199,10 +199,10 @@ class Aligner:
         # the mean distance across classes
         d_mean_neg = dist_hardest.sum() / (self.class_num * (hard_num - 1) + self.eps)
         # loss_p2p = d_mean_pos / (d_mean_neg + self.eps)
-        loss_p2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
+        loss_p2p = (d_mean_pos - d_mean_neg + self.margin).max(torch.Tensor([1e-6]).cuda()[0])
         return loss_p2p
 
-    def _instance_align_loss(self, feat, label, margin=0.3, hard_ratio=0.3):
+    def _instance_align_loss(self, feat, label, hard_ratio=0.3):
         """Compute the loss between instances and prototypes.
         Args:
             feat: deep features outputted by backbone. shape=(b, k, h, w)
@@ -212,7 +212,6 @@ class Aligner:
         Returns:
             loss_2p: loss between instances and their prototypes.
         """
-        assert 0 <= margin and 0 < hard_ratio <= 1
         feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)     # (b*h*w, k)
         ins_num = feat.shape[0]
         # compute the dist between instances and classes
@@ -229,8 +228,8 @@ class Aligner:
         # the mean distance between instances and their prototypes
         d_mean_pos = (dist_matrix * mask_pos).sum() / (ins_num + self.eps)
         d_mean_neg = dist_hardest.sum() / (ins_num * (hard_num - 1) + self.eps)
-        loss_i2p = (d_mean_pos - d_mean_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
-        # loss_i2p = d_mean_pos / (1 + d_mean_neg + self.eps)
+        # loss_i2p = d_mean_pos / (d_mean_neg + self.eps)
+        loss_i2p = (d_mean_pos - d_mean_neg + self.margin).max(torch.Tensor([1e-6]).cuda()[0])
         return loss_i2p
 
     def _pearson_dist(self, feat1, feat2):

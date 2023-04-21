@@ -183,6 +183,8 @@ class Aligner:
             loss_2p: loss for two local prototypes.
         """
         assert prototypes_1.shape == prototypes_2.shape
+        # return tnf.mse_loss(prototypes_1, prototypes_2)
+
         # compute distance matrix for each class pair
         # dist_matrix = torch.cdist(prototypes_1, prototypes_2, p=2)  # (c, c), Euclidean distances
         dist_matrix = self._pearson_dist(prototypes_1, prototypes_2)  # (c, c), pearson distances
@@ -212,8 +214,8 @@ class Aligner:
         feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)     # (b*h*w, k)
         # ins_num = feat.shape[0]
         # compute the dist between instances and classes
-        # dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
-        dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
+        dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
+        # dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
         mask_pos = self._index2onehot(label)    # (b*h*w, c)
         mask_neg = 1 - mask_pos                 # (b*h*w, c)
 

@@ -102,23 +102,6 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
-    # def _pseudo_label_refine(self, feat_t, label_t):
-    #     """Refine the pseudo label online by the outputted features and prototypes
-    #     Args:
-    #         feat_t: torch.Tensor, features of target domain, shape=(b, k, h, w)
-    #         label_t: torch.Tensor, hard pseudo labels, shape=(b, 1, h, w)
-    #
-    #     Returns:
-    #         label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
-    #     """
-    #     b, k, h, w = feat_t.shape
-    #     feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-    #     dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)     # (b*h*w, c)
-    #     _, label_online = torch.min(dist_pear, dim=1)
-    #     label_online = label_online.view(b, 1, h, w)       # (b, 1, h, w)
-    #     label_refined = torch.where(label_online == label_t, label_t, self.ignore_label)
-    #     return label_refined
-
     def pseudo_label_refine(self, feat_t, preds_t, label_t):
         """Refine the pseudo label online by the outputted features and prototypes
         Args:

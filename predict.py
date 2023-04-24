@@ -48,7 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
     args = parser.parse_args()
 
-    cfg = import_config(args.config_path, copy=False)
+    cfg = import_config(args.config_path, copy=False, create=False)
     model = Deeplabv2(dict(
         backbone=dict(
             resnet_type='resnet50',

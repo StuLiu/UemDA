@@ -173,9 +173,8 @@ def main():
                     if args.align_instance else 0
                 loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) \
                     if args.whiten else 0
-                lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
                 loss = (loss_source + loss_pseudo +
-                        lmd_1 * (loss_domain + 0.01 * loss_class + 0.1 * loss_instance + 1e-3 * loss_whiten))
+                        lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -185,7 +184,7 @@ def main():
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
                            f' domain={loss_domain:.3e}, class={loss_class:.3e}, instance={loss_instance:.3e},' \
                            f' white={loss_whiten:.3e},' \
-                           f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
+                           f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}'
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:

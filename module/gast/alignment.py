@@ -111,21 +111,21 @@ class Aligner:
         Returns:
             label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
         """
-        # return self.downscale_gt(label_t).squeeze(dim=1)
-        b, k, h, w = feat_t.shape
-        feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
-        weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
-        weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
-        if isinstance(preds_t, list):
-            preds_t = (preds_t[0] + preds_t[1]) * 0.5
-        preds_t = torch.softmax(preds_t, dim=1)                                 # (b, c, h, w)
-        _, label_online = torch.max(weight * preds_t, dim=1)                    # (b, h, w)
-        # pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
-        label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
-        ign = torch.LongTensor([self.ignore_label]).cuda()[0]
-        label_refined = torch.where(label_online == label_t, label_t, ign)
-        return label_refined                                                    # (b, h, w)
+        return self.downscale_gt(label_t).squeeze(dim=1)
+        # b, k, h, w = feat_t.shape
+        # feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
+        # dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
+        # weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
+        # weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
+        # if isinstance(preds_t, list):
+        #     preds_t = (preds_t[0] + preds_t[1]) * 0.5
+        # preds_t = torch.softmax(preds_t, dim=1)                                 # (b, c, h, w)
+        # _, label_online = torch.max(weight * preds_t, dim=1)                    # (b, h, w)
+        # # pseudo_label_online = pseudo_selection(logits_online, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        # label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
+        # ign = torch.LongTensor([self.ignore_label]).cuda()[0]
+        # label_refined = torch.where(label_online == label_t, label_t, ign)
+        # return label_refined                                                    # (b, h, w)
 
     def _compute_local_prototypes(self, feat, label, update=False, decay=0.99):
         """Compute prototypes within a mini-batch

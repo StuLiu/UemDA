@@ -24,7 +24,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
         cutoff_low:
         return_type
     Returns:
-
+        ret: Tensor, pseudo label, shape=(b, h, w)
     """
     assert return_type in ['ndarray', 'tensor']
     assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())

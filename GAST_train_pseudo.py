@@ -69,7 +69,7 @@ def main():
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
     # pseudo loader (target)
-    # pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
+    pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
     # target loader
     targetloader = LoveDALoader(cfg.TARGET_DATA_CONFIG)
     targetloader_iter = Iterator(targetloader)
@@ -125,6 +125,21 @@ def main():
             if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
 
+            # Generate pseudo label
+            if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
+                logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
+                # save pseudo label for target domain
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path)
+                # save finish
+                target_config = cfg.TARGET_DATA_CONFIG
+                target_config['mask_dir'] = [save_pseudo_label_path]
+                logger.info(target_config)
+                targetloader = LoveDALoader(target_config)
+
+                targetloader_iter = Iterator(targetloader)
+                logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
+            torch.cuda.synchronize()
+
             # Train with source and target domain
             if i_iter < cfg.NUM_STEPS_STOP:
                 model.train()
@@ -134,10 +149,8 @@ def main():
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
-                images_t, _ = batch_t[0]
-                images_t = images_t.cuda()
-                # images_t, label_t = batch_t[0]
-                # images_t, label_t = images_t.cuda(), label_t['cls'].cuda()
+                images_t, label_t = batch_t[0]
+                images_t, label_t = images_t.cuda(), label_t['cls'].cuda()
 
                 # model forward
                 # source
@@ -146,21 +159,21 @@ def main():
                 pred_t1, pred_t2, feat_t = model(images_t)
 
                 if args.align_class or args.align_instance or args.whiten:
-                    feature_label = aligner.feature_label_assign(feat_t, [pred_t1, pred_t2])
+                    pseudo_label_online = aligner.pseudo_label_refine(feat_t, [pred_t1, pred_t2], label_t)
                 else:
-                    feature_label = None
+                    pseudo_label_online = None
 
                 # loss
-                loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
-                # loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
+                loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
+                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss_class = aligner.align_class(feat_s, label_s, feat_t, feature_label) \
+                loss_class = aligner.align_class(feat_s, label_s, feat_t, pseudo_label_online) \
                     if args.align_class else 0
-                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, feature_label) \
+                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, pseudo_label_online) \
                     if args.align_instance else 0
-                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, feature_label) \
+                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) \
                     if args.whiten else 0
-                loss = (loss_seg +
+                loss = (loss_source + loss_pseudo +
                         lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
 
                 optimizer.zero_grad()
@@ -168,7 +181,7 @@ def main():
                 clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                           max_norm=35, norm_type=2)
                 optimizer.step()
-                log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_seg:.3f},' \
+                log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
                            f' domain={loss_domain:.3e}, class={loss_class:.3e}, instance={loss_instance:.3e},' \
                            f' white={loss_whiten:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}'
@@ -188,8 +201,6 @@ def main():
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
             break
-
-        torch.cuda.synchronize()
 
 
 if __name__ == '__main__':

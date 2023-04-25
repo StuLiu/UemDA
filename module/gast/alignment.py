@@ -58,6 +58,11 @@ class Aligner:
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
 
+    def update_prototype(self, feat_s, label_s):
+        """Update global prototypes by source features and labels."""
+        label_s = self.downscale_gt(label_s)        # (b, 32*h, 32*w) -> (b, 1, h, w)
+        self._compute_local_prototypes(feat_s, label_s, update=True)
+
     def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
         """ Compute the loss for class level alignment.
             Besides, update the shared prototypes by the local prototypes of source and target domain.
@@ -75,7 +80,7 @@ class Aligner:
         half = feat_s.shape[0] // 2
         local_prototype_s1 = self._compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
         local_prototype_s2 = self._compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
-        local_prototype_s = self._compute_local_prototypes(feat_s, label_s, update=True)    # update global prototypes
+        local_prototype_s = self._compute_local_prototypes(feat_s, label_s, update=False)    # update global prototypes
         loss_inter = self._class_align_loss(local_prototype_s1, local_prototype_s2)
         if feat_t is None or label_t is None:
             loss_class = loss_inter
@@ -119,7 +124,9 @@ class Aligner:
         # weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
         # weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
         if isinstance(preds_t, list):
-            preds_t = (preds_t[0] + preds_t[1]) * 0.5                           # (b, c, h, w)
+            preds_t = (preds_t[0].softmax(dim=1) + preds_t[1].softmax(dim=1)) * 0.5    # (b, c, h, w)
+        else:
+            preds_t = preds_t.softmax(dim=1)
         # preds_refine = torch.softmax(weight * preds_t, dim=1)                   # (b, h, w)
         pseudo_label_online = pseudo_selection(preds_t, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return pseudo_label_online.squeeze(dim=1)
@@ -154,6 +161,7 @@ class Aligner:
 
         if update:
             self.prototypes = self._ema(self.prototypes, local_prototype, decay).detach()
+            # print(self.prototypes)
         return local_prototype
 
     def _class_align_loss(self, prototypes_1, prototypes_2, margin=0.3, hard_ratio=0.3):
@@ -197,7 +205,7 @@ class Aligner:
         """
         # b, k, h, w = feat.shape
         feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)     # (b*h*w, k)
-        ignored = (label < 0).purmute(0, 2, 3, 1).reshape(-1, 1)            # (b*h*w, 1)
+        ignored = (label < 0).permute(0, 2, 3, 1).reshape(-1, 1)            # (b*h*w, 1)
         no_ignored = 1 - ignored.float()                                    # (b*h*w, 1)
         mask_pos = self._index2onehot(label)    # (b*h*w, c)
         mask_neg = 1 - mask_pos                 # (b*h*w, c)
@@ -338,7 +346,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
+        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
         _loss_white = aligner.whiten_class_ware(f_s, l_s, f_t, l_t)
         print(_loss_white.cpu().item(), '\t', i)
         optimizer.zero_grad()
@@ -369,7 +377,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
+        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
         _loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
         print(_loss_class)
         optimizer.zero_grad()
@@ -385,7 +393,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.pseudo_label_refine(f_t, [p_1, p_2], l_t)
+        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
         _loss_ins = aligner.align_instance(f_s, l_s, f_t, l_t)
         print(_loss_ins)
         optimizer.zero_grad()

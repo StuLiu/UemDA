@@ -108,7 +108,7 @@ def main():
             loss_class = aligner.align_class(feat_s, label_s) if args.align_class else 0
             loss_instance = aligner.align_instance(feat_s, label_s) if args.align_instance else 0
             loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
+            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_instance + 1e-3 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -161,7 +161,7 @@ def main():
                 loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, feature_label) \
                     if args.whiten else 0
                 loss = (loss_seg +
-                        lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
+                        lmd_1 * (loss_domain + loss_class + loss_instance + 1e-3 * loss_whiten))
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -189,6 +189,8 @@ def main():
             evaluate(model, cfg, True, ckpt_path, logger)
             break
 
+        if args.align_class or args.align_instance:
+            aligner.update_prototype(feat_s, label_s)
         torch.cuda.synchronize()
 
 

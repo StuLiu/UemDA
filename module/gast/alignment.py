@@ -36,6 +36,7 @@ class Aligner:
 
         # small float to avoid dividing 0.
         self.eps = 1e-7
+        # self.eps_max = torch.FloatTensor([1e7]).cuda()[0]
 
         # prototypes for all classes. Note that, the prototypes is computed by source features only.
         self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
@@ -85,7 +86,7 @@ class Aligner:
         return loss_class
 
     def align_instance(self, feat_s, label_s, feat_t=None, label_t=None):
-        label_s = self.downscale_gt(label_s)
+        label_s = self.downscale_gt(label_s)    # (b, 1, h, w)
         loss_instance = self._instance_align_loss(feat_s, label_s)
         if feat_t is not None and label_t is not None:
             loss_instance += self._instance_align_loss(feat_t, label_t.unsqueeze(dim=1))
@@ -112,16 +113,15 @@ class Aligner:
             label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
         """
         # return self.downscale_gt(label_t).squeeze(dim=1)
-        b, k, h, w = feat_t.shape
-        feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-        dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
-        weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
-        weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
+        # b, k, h, w = feat_t.shape
+        # feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
+        # dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
+        # weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
+        # weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
         if isinstance(preds_t, list):
-            preds_t = (preds_t[0] + preds_t[1]) * 0.5
-        preds_t = torch.softmax(preds_t, dim=1)                                 # (b, c, h, w)
-        preds_refine = torch.softmax(weight * preds_t, dim=1)                   # (b, h, w)
-        pseudo_label_online = pseudo_selection(preds_refine, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+            preds_t = (preds_t[0] + preds_t[1]) * 0.5                           # (b, c, h, w)
+        # preds_refine = torch.softmax(weight * preds_t, dim=1)                   # (b, h, w)
+        pseudo_label_online = pseudo_selection(preds_t, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return pseudo_label_online.squeeze(dim=1)
         # label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
         # ign = torch.LongTensor([self.ignore_label]).cuda()[0]
@@ -189,32 +189,39 @@ class Aligner:
         """Compute the loss between instances and prototypes.
         Args:
             feat: deep features outputted by backbone. shape=(b, k, h, w)
-            label: gt or pseudo label. shape=(b, h, w) or (b, 1, h, w)
+            label: gt or pseudo label. shape=(b, 1, h, w)
             margin: distance for margin loss. a no-neg float.
             hard_ratio: ratio for selecting hardest examples.
         Returns:
             loss_2p: loss between instances and their prototypes.
         """
+        # b, k, h, w = feat.shape
         feat = feat.permute(0, 2, 3, 1).reshape(-1, self.feat_channels)     # (b*h*w, k)
-        # ins_num = feat.shape[0]
-        # compute the dist between instances and classes
-        dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
-        # dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
+        ignored = (label < 0).purmute(0, 2, 3, 1).reshape(-1, 1)            # (b*h*w, 1)
+        no_ignored = 1 - ignored.float()                                    # (b*h*w, 1)
         mask_pos = self._index2onehot(label)    # (b*h*w, c)
         mask_neg = 1 - mask_pos                 # (b*h*w, c)
 
+        # compute the dist between instances and classes
+        # dist_matrix = torch.cdist(feat, self.prototypes, p=2)  # Euclidean distance, (b*h*w, c)
+        dist_matrix = self._pearson_dist(feat, self.prototypes)  # Euclidean distance, (b*h*w, c)
+
         # compute the distances for each instance with their nearest prototypes.
         hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)
+
         dist_hardest, _ = torch.topk(dist_matrix * mask_neg, k=hard_num, dim=1, largest=False)
 
         # the mean distance between instances and their prototypes
         # d_mean_pos = (dist_matrix * mask_pos).sum(dim=1)
         # d_mean_neg = dist_hardest.sum(dim=1) / ((hard_num - 1) + self.eps)
-        d_pos = torch.sum(dist_matrix * mask_pos, dim=1, keepdim=True)     # (b*h*w, 1)
-        d_neg = dist_hardest[:, 1:]                                 # (b*h*w, hard_num - 1)
+        d_pos = torch.sum(dist_matrix * mask_pos, dim=1, keepdim=True)      # (b*h*w, 1)
+        d_neg = dist_hardest[:, 1:]                                         # (b*h*w, hard_num - 1)
         # loss_i2p = d_mean_pos / (d_mean_neg + self.eps)
-        loss_i2p = (d_pos - d_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
-        return loss_i2p.mean()
+        loss_i2p = (d_pos - d_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])     # (b*h*w, hard_num - 1)
+        loss_i2p *= no_ignored
+        cnt_i2p = torch.sum(no_ignored) * (hard_num - 1)
+
+        return loss_i2p.sum() / (cnt_i2p + self.eps)
 
     def _pearson_dist(self, feat1, feat2):
         """

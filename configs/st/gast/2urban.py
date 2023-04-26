@@ -22,7 +22,7 @@ PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9  # lr poly power
 EVAL_EVERY = 1000
 GENERATE_PSEDO_EVERY = 1000
-MULTI_LAYER = False
+MULTI_LAYER = True
 IGNORE_BG = True
 PSEUDO_SELECT = True
 
@@ -51,6 +51,6 @@ TARGET_DATA_CONFIG = dict(
     training=True,
     batch_size=8,
     num_workers=4,
-    pin_memory=False,
-    data_type='tensor',
+    pin_memory=True,
+    label_type='prob',
 )

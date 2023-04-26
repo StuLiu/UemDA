@@ -58,7 +58,7 @@ class RandomRotate90(object):
 
     def __call__(self, image, target=None):
         if random.random() < self.prob:
-            image = torch.rot90(image, k=1, dims=[2, 3])    # rotate neg 90
+            image = torch.rot90(image, k=1, dims=[1, 2])    # rotate neg 90
             if target is not None:
                 target = torch.rot90(target, k=1, dims=[1, 2])
         return image, target
@@ -133,18 +133,19 @@ if __name__ == '__main__':
     import ever as er
     transform = Compose([
         RandomCrop((512, 512)),
-        RandomHorizontalFlip(prob=0.5),
-        RandomVerticalFlip(prob=0.5),
-        RandomRotate90(prob=0.5),
+        RandomHorizontalFlip(prob=1),
+        RandomVerticalFlip(prob=1),
+        RandomRotate90(prob=1),
         Normalize(
             mean=(73.53223948, 80.01710095, 74.59297778),
             std=(41.5113661, 35.66528876, 33.75830885)
         ),
     ])
 
-    _input = torch.ones([8, 3, 1024, 1024])
+    _input = torch.ones([3, 1024, 1024]) * 128
     a = list(range(0, 1024))
-    _label = torch.LongTensor(a).unsqueeze(dim=0).unsqueeze(dim=0).unsqueeze(dim=0).expand(8, 7, 1024, 1024)
+    _label = torch.FloatTensor(a).unsqueeze(dim=0).unsqueeze(dim=0).expand(7, 1024, 1024)
     # _label = torch.ones([8, 7, 1024, 1024])
     _out = transform(image=_input, mask=_label)
-    print(_out['image'])
+    print(_out['image'], _out['mask'])
+    print(_out['image'].shape, _out['mask'].shape)

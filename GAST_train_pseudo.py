@@ -28,10 +28,7 @@ from module.gast.pseudo_generation import gener_target_pseudo
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
-parser.add_argument('--align-domain', type=str2bool, default=1, help='whether align domain or not')
-parser.add_argument('--align-class', type=str2bool, default=1, help='whether align class or not')
-parser.add_argument('--align-instance', type=str2bool, default=1, help='whether align instance or not')
-parser.add_argument('--whiten', type=str2bool, default=1, help='whether whiten or not')
+parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
@@ -98,7 +95,7 @@ def main():
             images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
             pred_s1, pred_s2, feat_s = model(images_s)
             # update prototypes
-            aligner.update_prototype(feat_s, label_s)
+            # aligner.update_prototype(feat_s, label_s)
 
             # target infer
             batch = targetloader_iter.next()
@@ -109,20 +106,15 @@ def main():
             # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss_class = 0  # aligner.align_class(feat_s, label_s) if args.align_class else 0
-            loss_instance = 0  # aligner.align_instance(feat_s, label_s) if args.align_instance else 0
-            loss_whiten = 0  # aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_instance + 1e-3 * loss_whiten))
+            loss = loss_seg + lmd_1 * loss_domain
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
             log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
-                       f'loss_domain={loss_domain:.3e}, loss_class={loss_class:.3e} ' \
-                       f'loss_instance={loss_instance:.3e}, loss_white={loss_whiten:.3e}, ' \
+                       f'loss_domain={loss_domain:.3e}, ' \
                        f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
-            # aligner.compute_local_prototypes(feat_s, label_s, update=True, decay=0.99)  # update shared prototypes
         else:
             log_loss = ''
             # Second Stage
@@ -133,7 +125,7 @@ def main():
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, save_logits=True, slide=True)
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, save_prob=True, slide=True)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
@@ -168,17 +160,8 @@ def main():
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_soft, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss_class = 0
-                loss_instance = 0
-                loss_whiten = 0
-                # loss_class = aligner.align_class(feat_s, label_s, feat_t, pseudo_label_online) \
-                #     if args.align_class else 0
-                # loss_instance = aligner.align_instance(feat_s, label_s, feat_t, pseudo_label_online) \
-                #     if args.align_instance else 0
-                # loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) \
-                #     if args.whiten else 0
-                loss = (loss_source + loss_pseudo +
-                        lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
+
+                loss = loss_source + loss_pseudo + lmd_1 * loss_domain
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -186,8 +169,7 @@ def main():
                                           max_norm=35, norm_type=2)
                 optimizer.step()
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
-                           f' domain={loss_domain:.3e}, class={loss_class:.3e}, instance={loss_instance:.3e},' \
-                           f' white={loss_whiten:.3e},' \
+                           f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}'
 
         # logging training process, evaluating and saving
@@ -209,7 +191,5 @@ def main():
 
 if __name__ == '__main__':
     # seed_torch(int(time.time()) % 10000019)
-
-    torch.multiprocessing.set_start_method('spawn')  # to avoid error when a mini-batch loaded by multiple processes
     seed_torch(2333)
     main()

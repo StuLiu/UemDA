@@ -118,10 +118,9 @@ class Aligner:
             else:
                 preds_t = tnf.interpolate(preds_t, label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
                 preds_t = preds_t.softmax(dim=1)
-            label_t_soft = torch.softmax(label_t_hard * preds_t, dim=1)
+            label_t_soft = label_t_hard * preds_t
         else:
-            label_t_soft = torch.softmax(label_t_hard, dim=1)
-        label_t_soft = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+            label_t_soft = pseudo_selection(label_t_hard, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return label_t_soft  # (b, h, w)
 
     def feature_label_assign(self, feat_t, preds_t):

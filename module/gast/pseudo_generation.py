@@ -32,7 +32,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
     mask = mask.view(bs, c, -1)
 
     # for each class extract the max confidence
-    mask_max, _ = mask.max(-1, keepdim=True)
+    mask_max, _ = mask.max(-1, keepdim=True)  # (b, c, 1)
     mask_max *= cutoff_top
 
     # if the top score is too low, ignore it
@@ -53,7 +53,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
 
 
 def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
-                        slide=True, save_logits=False, size=(1024, 1024)):
+                        slide=True, save_prob=False, size=(1024, 1024)):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -62,19 +62,27 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
     viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
 
     with torch.no_grad():
-        i=0
+        _i = 0
         for ret, ret_gt in tqdm(pseudo_loader):
+            # _i += 1
+            # if _i >= 1:
+            #     break
+
             ret = ret.cuda()
 
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)  # (b, c, h, w)
 
-            if save_logits:
-                torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0),
-                           save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')
+            if save_prob:
+                np.save(save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.npy',
+                        tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(
+                            dim=0
+                        ).cpu().numpy())       # (b, c, h, w)
+                # torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0).cpu(),
+                #            save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')
             else:
                 # pseudo selection, from -1~6
                 if _cfg.PSEUDO_SELECT:
-                    cls = pseudo_selection(cls)     # (b, h, w)
+                    cls = pseudo_selection(cls)  # (b, h, w)
                 else:
                     cls = cls.argmax(dim=1).cpu().numpy()
 
@@ -84,6 +92,3 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
                 if _cfg.SNAPSHOT_DIR is not None:
                     for fname, pred in zip(ret_gt['fname'], cls):
                         viz_op(pred, fname.replace('tif', 'png'))
-            # i+=1
-            # if i >= 2:
-            #     break

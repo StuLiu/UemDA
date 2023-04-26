@@ -5,6 +5,8 @@
 @Author  : WangLiu
 @E-mail  : liuwa@hnu.edu.cn
 """
+import torch.multiprocessing
+
 import cv2
 import argparse
 import os.path as osp
@@ -95,6 +97,8 @@ def main():
             images_s, label_s = batch[0]
             images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
             pred_s1, pred_s2, feat_s = model(images_s)
+            # update prototypes
+            aligner.update_prototype(feat_s, label_s)
 
             # target infer
             batch = targetloader_iter.next()
@@ -105,10 +109,10 @@ def main():
             # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss_class = aligner.align_class(feat_s, label_s) if args.align_class else 0
-            loss_instance = aligner.align_instance(feat_s, label_s) if args.align_instance else 0
-            loss_whiten = aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
-            loss = (loss_seg + lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
+            loss_class = 0  # aligner.align_class(feat_s, label_s) if args.align_class else 0
+            loss_instance = 0  # aligner.align_instance(feat_s, label_s) if args.align_instance else 0
+            loss_whiten = 0  # aligner.whiten_class_ware(feat_s, label_s) if args.whiten else 0
+            loss = (loss_seg + lmd_1 * (loss_domain + loss_class + loss_instance + 1e-3 * loss_whiten))
 
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -129,7 +133,7 @@ def main():
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path)
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, save_logits=True, slide=True)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
@@ -149,8 +153,8 @@ def main():
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
-                images_t, label_t = batch_t[0]
-                images_t, label_t = images_t.cuda(), label_t['cls'].cuda()
+                images_t, label_t_hard = batch_t[0]
+                images_t, label_t_hard = images_t.cuda(), label_t_hard['cls'].cuda()
 
                 # model forward
                 # source
@@ -158,21 +162,21 @@ def main():
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                if args.align_class or args.align_instance or args.whiten:
-                    pseudo_label_online = aligner.pseudo_label_refine(feat_t, [pred_t1, pred_t2], label_t)
-                else:
-                    pseudo_label_online = None
+                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_hard, refine=False)
 
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
-                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t, multi=True)
+                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_soft, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss_class = aligner.align_class(feat_s, label_s, feat_t, pseudo_label_online) \
-                    if args.align_class else 0
-                loss_instance = aligner.align_instance(feat_s, label_s, feat_t, pseudo_label_online) \
-                    if args.align_instance else 0
-                loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) \
-                    if args.whiten else 0
+                loss_class = 0
+                loss_instance = 0
+                loss_whiten = 0
+                # loss_class = aligner.align_class(feat_s, label_s, feat_t, pseudo_label_online) \
+                #     if args.align_class else 0
+                # loss_instance = aligner.align_instance(feat_s, label_s, feat_t, pseudo_label_online) \
+                #     if args.align_instance else 0
+                # loss_whiten = aligner.whiten_class_ware(feat_s, label_s, feat_t, pseudo_label_online) \
+                #     if args.whiten else 0
                 loss = (loss_source + loss_pseudo +
                         lmd_1 * (loss_domain + 0.1 * loss_class + loss_instance + 1e-3 * loss_whiten))
 
@@ -205,5 +209,7 @@ def main():
 
 if __name__ == '__main__':
     # seed_torch(int(time.time()) % 10000019)
+
+    torch.multiprocessing.set_start_method('spawn')  # to avoid error when a mini-batch loaded by multiple processes
     seed_torch(2333)
     main()

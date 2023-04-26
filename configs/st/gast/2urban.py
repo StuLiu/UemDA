@@ -1,5 +1,8 @@
-from configs.ToURBAN import SOURCE_DATA_CONFIG,TARGET_DATA_CONFIG, EVAL_DATA_CONFIG, \
-    PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET
+from configs.ToURBAN import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
+    PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir
+import module.aug.augmentation as mag
+
+
 MODEL = 'ResNet'
 
 
@@ -26,7 +29,28 @@ PSEUDO_SELECT = True
 
 TARGET_SET = TARGET_SET
 SOURCE_DATA_CONFIG = SOURCE_DATA_CONFIG
-TARGET_DATA_CONFIG = TARGET_DATA_CONFIG
 PSEUDO_DATA_CONFIG = PSEUDO_DATA_CONFIG
 EVAL_DATA_CONFIG = EVAL_DATA_CONFIG
 TEST_DATA_CONFIG = TEST_DATA_CONFIG
+
+
+TARGET_DATA_CONFIG = dict(
+    image_dir=target_dir['image_dir'],
+    mask_dir=[None],
+    transforms=mag.Compose([
+        mag.RandomCrop((512, 512)),
+        mag.RandomHorizontalFlip(0.5),
+        mag.RandomVerticalFlip(0.5),
+        mag.RandomRotate90(0.5),
+        mag.Normalize(
+            mean=(73.53223948, 80.01710095, 74.59297778),
+            std=(41.5113661, 35.66528876, 33.75830885)
+        ),
+    ]),
+    CV=dict(k=10, i=-1),
+    training=True,
+    batch_size=8,
+    num_workers=4,
+    pin_memory=False,
+    data_type='tensor',
+)

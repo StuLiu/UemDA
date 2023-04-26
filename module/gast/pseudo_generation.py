@@ -52,7 +52,8 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
     return ret
 
 
-def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path, slide=True):
+def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
+                        slide=True, save_logits=False, size=(1024, 1024)):
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -61,20 +62,28 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path, slid
     viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
 
     with torch.no_grad():
+        i=0
         for ret, ret_gt in tqdm(pseudo_loader):
             ret = ret.cuda()
 
-            cls = pre_slide(model, ret, tta=True) if slide else model(ret)
-            # cls = pre_slide(model, ret, tta=True)
-            # pseudo selection, from -1~6
-            if _cfg.PSEUDO_SELECT:
-                cls = pseudo_selection(cls)
+            cls = pre_slide(model, ret, tta=True) if slide else model(ret)  # (b, c, h, w)
+
+            if save_logits:
+                torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0),
+                           save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')
             else:
-                cls = cls.argmax(dim=1).cpu().numpy()
+                # pseudo selection, from -1~6
+                if _cfg.PSEUDO_SELECT:
+                    cls = pseudo_selection(cls)     # (b, h, w)
+                else:
+                    cls = cls.argmax(dim=1).cpu().numpy()
 
-            cv2.imwrite(save_pseudo_label_path + '/' + ret_gt['fname'][0],
-                        (cls + 1).reshape(1024, 1024).astype(np.uint8))
+                cv2.imwrite(save_pseudo_label_path + '/' + ret_gt['fname'][0],
+                            (cls + 1).reshape(*size).astype(np.uint8))
 
-            if _cfg.SNAPSHOT_DIR is not None:
-                for fname, pred in zip(ret_gt['fname'], cls):
-                    viz_op(pred, fname.replace('tif', 'png'))
+                if _cfg.SNAPSHOT_DIR is not None:
+                    for fname, pred in zip(ret_gt['fname'], cls):
+                        viz_op(pred, fname.replace('tif', 'png'))
+            # i+=1
+            # if i >= 2:
+            #     break

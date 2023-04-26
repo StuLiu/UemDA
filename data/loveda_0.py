@@ -1,4 +1,3 @@
-import torch
 from torch.utils.data import Dataset, DataLoader
 import glob
 import os
@@ -31,9 +30,7 @@ LABEL_MAP = OrderedDict(
 
 
 class LoveDA(Dataset):
-    def __init__(self, image_dir, mask_dir, transforms=None, data_type='ndarray'):
-        assert data_type in ['ndarray', 'tensor']
-        self.data_type = data_type
+    def __init__(self, image_dir, mask_dir, transforms=None):
         self.rgb_filepath_list = []
         self.cls_filepath_list= []
         if isinstance(image_dir, list):
@@ -44,6 +41,7 @@ class LoveDA(Dataset):
             self.batch_generate(image_dir, mask_dir)
 
         self.transforms = transforms
+
 
     def batch_generate(self, image_dir, mask_dir):
         rgb_filepath_list = glob.glob(os.path.join(image_dir, '*.tif'))
@@ -60,26 +58,19 @@ class LoveDA(Dataset):
 
     def __getitem__(self, idx):
         image = imread(self.rgb_filepath_list[idx])
-        if self.data_type == 'tensor':
-            image = torch.FloatTensor(image).permute(2, 0, 1).unsqueeze(dim=0)
-
         if len(self.cls_filepath_list) > 0:
             # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
-            if self.data_type == 'ndarray':
-                mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
-            else:
-                mask = torch.load(f'{self.cls_filepath_list[idx]}.pt')
-                mask = mask
+            mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
             if self.transforms is not None:
                 blob = self.transforms(image=image, mask=mask)
-                image = blob['image'].squeeze(dim=0)
+                image = blob['image']
                 mask = blob['mask']
 
             return image, dict(cls=mask, fname=os.path.basename(self.rgb_filepath_list[idx]))
         else:
             if self.transforms is not None:
                 blob = self.transforms(image=image)
-                image = blob['image'].squeeze(dim=0)
+                image = blob['image']
 
             return image, dict(fname=os.path.basename(self.rgb_filepath_list[idx]))
 
@@ -91,10 +82,7 @@ class LoveDA(Dataset):
 class LoveDALoader(DataLoader, ConfigurableMixin):
     def __init__(self, config):
         ConfigurableMixin.__init__(self, config)
-        dataset = LoveDA(image_dir=self.config.image_dir,
-                         mask_dir=self.config.mask_dir,
-                         transforms=self.config.transforms,
-                         data_type=self.config.data_type)
+        dataset = LoveDA(self.config.image_dir, self.config.mask_dir, self.config.transforms)
 
         if self.config.CV.i != -1:
             CV = CrossValSamplerGenerator(dataset, distributed=True, seed=2333)
@@ -112,7 +100,7 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
                                        self.config.batch_size,
                                        sampler=sampler,
                                        num_workers=self.config.num_workers,
-                                       pin_memory=self.config.pin_memory,
+                                       pin_memory=True,
                                        drop_last=True
                                        )
     def set_default_config(self):
@@ -121,7 +109,6 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
             mask_dir=None,
             batch_size=4,
             num_workers=4,
-            pin_memory=True,
             scale_size=None,
             transforms=Compose([
                 OneOf([
@@ -132,5 +119,4 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
                 Normalize(mean=(), std=(), max_pixel_value=1, always_apply=True),
                 ToTensorV2()
             ]),
-            data_type='ndarray',
         ))

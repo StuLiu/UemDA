@@ -62,6 +62,7 @@ class Aligner:
         """Update global prototypes by source features and labels."""
         label_s = self.downscale_gt(label_s)        # (b, 32*h, 32*w) -> (b, 1, h, w)
         self._compute_local_prototypes(feat_s, label_s, update=True)
+        # print(self.prototypes)
 
     def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
         """ Compute the loss for class level alignment.
@@ -108,6 +109,21 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
+    def label_refine(self, feat_t, preds_t, label_t_hard, refine=True):
+        if refine:
+            if isinstance(preds_t, list):
+                preds_t[0] = tnf.interpolate(preds_t[0], label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
+                preds_t[1] = tnf.interpolate(preds_t[1], label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
+                preds_t = (preds_t[0].softmax(dim=1) + preds_t[1].softmax(dim=1)) * 0.5    # (b, c, h, w)
+            else:
+                preds_t = tnf.interpolate(preds_t, label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
+                preds_t = preds_t.softmax(dim=1)
+            label_t_soft = torch.softmax(label_t_hard * preds_t, dim=1)
+        else:
+            label_t_soft = torch.softmax(label_t_hard, dim=1)
+        label_t_soft = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        return label_t_soft  # (b, h, w)
+
     def feature_label_assign(self, feat_t, preds_t):
         """Refine the pseudo label online by the outputted features and prototypes
         Args:
@@ -128,14 +144,15 @@ class Aligner:
         else:
             preds_t = preds_t.softmax(dim=1)
         # preds_refine = torch.softmax(weight * preds_t, dim=1)                   # (b, h, w)
-        pseudo_label_online = pseudo_selection(preds_t, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
-        return pseudo_label_online.squeeze(dim=1)
+        pseudo_label_online = torch.argmax(preds_t, dim=1)
+        # pseudo_label_online = pseudo_selection(preds_t, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        return pseudo_label_online
         # label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
         # ign = torch.LongTensor([self.ignore_label]).cuda()[0]
         # label_refined = torch.where(label_online == label_t, label_t, ign)
         # return label_refined                                                    # (b, h, w)
 
-    def _compute_local_prototypes(self, feat, label, update=False, decay=0.99):
+    def _compute_local_prototypes(self, feat, label, update=False, decay=0.999):
         """Compute prototypes within a mini-batch
         Args:
             feat: torch.Tensor, mini-batch features, shape=(b, k, h, w)
@@ -261,7 +278,7 @@ class Aligner:
         return pearson_dist     # (n, m)
 
     @staticmethod
-    def _ema(history, curr, decay=0.99):
+    def _ema(history, curr, decay=0.999):
         new_average = (1.0 - decay) * curr + decay * history
         return new_average
 

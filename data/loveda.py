@@ -16,8 +16,6 @@ from utils.tools import seed_worker
 
 logger = logging.getLogger(__name__)
 
-
-
 LABEL_MAP = OrderedDict(
     Background=0,
     Building=1,
@@ -29,13 +27,14 @@ LABEL_MAP = OrderedDict(
 )
 
 
-
 class LoveDA(Dataset):
     def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
         assert label_type in ['id', 'prob']
         self.label_type = label_type
+        self.n_classes = 7
+        self.ignore_label = -1
         self.rgb_filepath_list = []
-        self.cls_filepath_list= []
+        self.cls_filepath_list = []
         if isinstance(image_dir, list):
             for img_dir_path, mask_dir_path in zip(image_dir, mask_dir):
                 self.batch_generate(img_dir_path, mask_dir_path)
@@ -66,14 +65,15 @@ class LoveDA(Dataset):
             if self.label_type == 'id':
                 # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
                 mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
+                # avoid noise label
             else:
                 mask = torch.from_numpy(np.load(f'{self.cls_filepath_list[idx]}.npy')).float()
                 # mask = torch.load(f'{self.cls_filepath_list[idx]}.pt', map_location=torch.device('cpu'))
+            mask[mask >= self.n_classes] = self.ignore_label
             if self.transforms is not None:
                 blob = self.transforms(image=image, mask=mask)
                 image = blob['image']
                 mask = blob['mask']
-
             return image, dict(cls=mask, fname=os.path.basename(self.rgb_filepath_list[idx]))
         else:
             if self.transforms is not None:
@@ -107,12 +107,13 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
                 dataset)
 
         super(LoveDALoader, self).__init__(dataset,
-                                       self.config.batch_size,
-                                       sampler=sampler,
-                                       num_workers=self.config.num_workers,
-                                       pin_memory=self.config.pin_memory,
-                                       drop_last=True
-                                       )
+                                           self.config.batch_size,
+                                           sampler=sampler,
+                                           num_workers=self.config.num_workers,
+                                           pin_memory=self.config.pin_memory,
+                                           drop_last=True
+                                           )
+
     def set_default_config(self):
         self.config.update(dict(
             image_dir=None,

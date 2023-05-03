@@ -63,7 +63,7 @@ def main():
         num_classes=7,
         is_ins_norm=True,
     )).cuda()
-    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1)
+    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.998)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
@@ -94,8 +94,10 @@ def main():
             images_s, label_s = batch[0]
             images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
             pred_s1, pred_s2, feat_s = model(images_s)
+
             # update prototypes
-            # aligner.update_prototype(feat_s, label_s)
+            # print(label_s.unique())
+            aligner.update_prototype(feat_s, label_s)
 
             # target infer
             batch = targetloader_iter.next()
@@ -107,7 +109,9 @@ def main():
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
             loss = loss_seg + lmd_1 * loss_domain
-
+            if torch.isnan(loss):
+                print('>>>>>>>>>>>>>>>>>>>>>>>>>loss is nan!<<<<<<<<<<<<<<<<<<<<<<<')
+                continue
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
@@ -145,8 +149,8 @@ def main():
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
-                images_t, label_t_hard = batch_t[0]
-                images_t, label_t_hard = images_t.cuda(), label_t_hard['cls'].cuda()
+                images_t, label_t_soft = batch_t[0]
+                images_t, label_t_soft = images_t.cuda(), label_t_soft['cls'].cuda()
 
                 # model forward
                 # source
@@ -154,7 +158,10 @@ def main():
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_hard, refine=False)
+                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft, refine=True)
+
+                # aligner.update_prototype(feat_s, label_s)
+                aligner.update_prototype(feat_t, label_t_soft)
 
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)

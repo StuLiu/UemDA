@@ -19,12 +19,12 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
     """
     Convert continuous mask into binary mask
     Args:
-        mask: torch.Tensor, shape=(b, c, h, w)
-        cutoff_top:
-        cutoff_low:
-        return_type
+        mask: torch.Tensor, the predicted probabilities for each examples, shape=(b, c, h, w).
+        cutoff_top: float, the ratio for computing threshold.
+        cutoff_low: float, the minimum threshold.
+        return_type: str, the format of the return item, should be in ['ndarray', 'tensor'].
     Returns:
-        ret: Tensor, pseudo label, shape=(b, h, w)
+        ret: Tensor, pseudo label, shape=(b, h, w).
     """
     assert return_type in ['ndarray', 'tensor']
     assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())
@@ -54,6 +54,20 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
 
 def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
                         slide=True, save_prob=False, size=(1024, 1024)):
+    """
+    Generate pseudo label for target domain. The saved probabilities should be processed by softmax.
+    Args:
+        _cfg: cfg loaded from configs/
+        model: nn.Module, deeplabv2
+        pseudo_loader: DataLoader, dataloader for target domain image, batch_size=1
+        save_pseudo_label_path: os.path.Path or str, the path for pseudo labels
+        slide: bool, if use slide mode when do inferring.
+        save_prob: bool, if save probabilities or class ids.
+        size: tuple or list, the height and width of the pseudo labels.
+
+    Returns:
+        None
+    """
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
@@ -65,7 +79,7 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
         _i = 0
         for ret, ret_gt in tqdm(pseudo_loader):
             # _i += 1
-            # if _i >= 1:
+            # if _i >= 2:
             #     break
 
             ret = ret.cuda()

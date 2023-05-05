@@ -87,12 +87,12 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)  # (b, c, h, w)
 
             if save_prob:
-                np.save(save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.npy',
-                        tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(
-                            dim=0
-                        ).cpu().numpy())       # (b, c, h, w)
-                # torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0).cpu(),
-                #            save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')
+                # np.save(save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.npy',
+                #         tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(
+                #             dim=0
+                #         ).cpu().numpy())       # (c, h, w)
+                torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0).cpu(),
+                           save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')   # (c, h, w)
             else:
                 # pseudo selection, from -1~6
                 if _cfg.PSEUDO_SELECT:

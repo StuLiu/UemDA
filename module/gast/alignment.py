@@ -6,6 +6,7 @@
 @Date    : 2023/3/13 下午9:43
 @e-mail  : 1183862787@qq.com
 """
+import collections
 
 import torch
 import torch.nn as nn
@@ -61,11 +62,10 @@ class Aligner:
         feat_t = feat_t.permute(0, 2, 3, 1).reshape([-1, self.feat_channels])
         return self.coral(feat_s, feat_t)
 
-    def update_prototype(self, feat_s, label_s):
+    def update_prototype(self, feat, label):
         """Update global prototypes by source features and labels."""
-        label_s = self.downscale_gt(label_s)  # (b, 32*h, 32*w) -> (b, 1, h, w)
-        self._compute_local_prototypes(feat_s, label_s, update=True, decay=self.decay)
-
+        label = self.downscale_gt(label)  # (b, 32*h, 32*w) -> (b, 1, h, w)
+        self._compute_local_prototypes(feat, label, update=True, decay=self.decay)
 
     def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
         """ Compute the loss for class level alignment.
@@ -74,7 +74,7 @@ class Aligner:
             feat_s:  features from source, shape as (b, k, h, w)
             label_s: labels from source  , shape as (b, 32*h, 32*w)
             feat_t:  features from source, shape as (b, k, h, w)
-            label_t: pseudo label, Tensor, shape as (b, h, w)
+            label_t: pseudo label, Tensor, shape as (b, 32*h, 32*w)
         Returns:
             loss_class: the loss for class level alignment
         """
@@ -89,8 +89,9 @@ class Aligner:
         if feat_t is None or label_t is None:
             loss_class = loss_inter
         else:
-            local_prototype_t = self._compute_local_prototypes(feat_t, label_t.unsqueeze(dim=1), update=False)
-            loss_intra = self._class_align_loss(local_prototype_s.detach(), local_prototype_t)
+            label_t = self.downscale_gt(label_t)
+            local_prototype_t = self._compute_local_prototypes(feat_t, label_t, update=False)
+            loss_intra = self._class_align_loss(local_prototype_s, local_prototype_t)
             loss_class = 0.5 * (loss_inter + loss_intra)
         return loss_class
 
@@ -98,14 +99,15 @@ class Aligner:
         label_s = self.downscale_gt(label_s)  # (b, 1, h, w)
         loss_instance = self._instance_align_loss(feat_s, label_s)
         if feat_t is not None and label_t is not None:
-            loss_instance += self._instance_align_loss(feat_t, label_t.unsqueeze(dim=1))
+            label_t = self.downscale_gt(label_t)
+            loss_instance += self._instance_align_loss(feat_t, label_t)
             loss_instance *= 0.5
         return loss_instance
 
     def whiten_class_ware(self, feat_s, label_s, feat_t=None, label_t=None):
         loss_white = self.whitener(feat_s, self.downscale_gt(label_s))
         if feat_t is not None and label_t is not None:
-            loss_white += self.whitener(feat_t, label_t)
+            loss_white += self.whitener(feat_t, self.downscale_gt(label_t))
             loss_white *= 0.5
         return loss_white
 
@@ -123,55 +125,39 @@ class Aligner:
             label_t_hard: Tensor, refined pseudo labels, (b, h, w)
         """
         if refine:
-            # if isinstance(preds_t, list):
-            #     preds_t[0] = tnf.interpolate(preds_t[0], label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
-            #     preds_t[1] = tnf.interpolate(preds_t[1], label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
-            #     preds_t = (preds_t[0].softmax(dim=1) + preds_t[1].softmax(dim=1)) * 0.5    # (b, c, h, w)
-            # else:
-            #     preds_t = tnf.interpolate(preds_t, label_t_hard.shape[-2:], mode='bilinear', align_corners=True)
-            #     preds_t = preds_t.softmax(dim=1)
             b, k, h, w = feat_t.shape
             feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, c)
-            simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)     # (b*h*w, c) Pearson distance
+            simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)  # (b*h*w, c) Pearson distance
             # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
-            simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
+            simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
             simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
                                           mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-            weight = torch.softmax(simi_matrix, dim=1)                          # (b, c, h, w)
-            weight_max, _ = torch.max(weight, dim=1, keepdim=True)
-            weight /= weight_max
+            weight_1 = torch.softmax(simi_matrix, dim=1)  # (b, c, h, w)
+            if isinstance(preds_t, list):
+                assert len(preds_t) == 2
+                x1 = tnf.interpolate(preds_t[0], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                weight_2 = (x1.softmax(dim=1) + x2.softmax(dim=1)) * 0.5  # (b, c, h, w)
+            else:
+                weight_2 = torch.softmax(preds_t, dim=1)  # (b, c, h, w)
+            weight = (weight_1 + weight_2) * 0.5
             label_t_soft = weight * label_t_soft
-            # label_t_soft = torch.softmax(weight * label_t_soft, dim=1)          # (b, c, h, w)
+            label_t_soft = self._logits_norm(label_t_soft)
         label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return label_t_hard  # (b, h, w)
 
-    def feature_label_assign(self, feat_t, preds_t):
-        """Refine the pseudo label online by the outputted features and prototypes
+    @staticmethod
+    def _logits_norm(logits):
+        """ Keep the sum==1 in class channel.
         Args:
-            feat_t: torch.Tensor, features of target domain, shape=(b, k, h, w)
-            preds_t: torch.Tensor or list, (b, c, h, w)
-            label_t: torch.Tensor, shape=(b, 32*h, 32*w)
+            logits: Tensor, probabilities, shape=(b, c, h, w)
         Returns:
-            label_refined: torch.Tensor, refined pseudo label, shape=(b, h, w)
+            logits_normed: Tensor, normalized probabilities, shape=(b, c, h, w)
         """
-        # return self.downscale_gt(label_t).squeeze(dim=1)
-        # b, k, h, w = feat_t.shape
-        # feat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)
-        # dist_pear = self._pearson_dist(feat1=feat, feat2=self.prototypes)       # (b*h*w, c), range=(0, 1)
-        # weight = torch.softmax(1.0 - dist_pear, dim=1)                          # (b*h*w, c)
-        # weight = weight.reshape(b, h, w, self.class_num).permute(0, 3, 1, 2)    # (b, c, h, w)
-        if isinstance(preds_t, list):
-            preds_t = (preds_t[0].softmax(dim=1) + preds_t[1].softmax(dim=1)) * 0.5  # (b, c, h, w)
-        else:
-            preds_t = preds_t.softmax(dim=1)
-        # preds_refine = torch.softmax(weight * preds_t, dim=1)                   # (b, h, w)
-        pseudo_label_online = torch.argmax(preds_t, dim=1)
-        # pseudo_label_online = pseudo_selection(preds_t, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
-        return pseudo_label_online
-        # label_t = self.downscale_gt(label_t).squeeze(dim=1)                     # (b, h, w)
-        # ign = torch.LongTensor([self.ignore_label]).cuda()[0]
-        # label_refined = torch.where(label_online == label_t, label_t, ign)
-        # return label_refined                                                    # (b, h, w)
+        assert len(logits.shape) == 4
+        logits_sum = torch.sum(logits, dim=1, keepdim=True)
+        logits_normed = logits / logits_sum
+        return logits_normed
 
     def _compute_local_prototypes(self, feat, label, update=False, decay=0.999):
         """Compute prototypes within a mini-batch
@@ -220,12 +206,12 @@ class Aligner:
         dist_matrix = self._pearson_dist(prototypes_1, prototypes_2)  # (c, c), pearson distances
 
         # hard example mining
-        hard_num = min(math.ceil(hard_ratio * self.class_num) + 1, self.class_num)  # int
+        hard_num = min(math.ceil(hard_ratio * self.class_num), self.class_num - 1)  # int
         eye_neg = 1 - torch.eye(self.class_num).cuda()  # 1 - I, (c, c)
-        dist_hardest, _ = torch.topk(dist_matrix * eye_neg, k=hard_num, dim=1, largest=False)  # (c, hard_num)
+        dist_hardest, _ = torch.topk(dist_matrix * eye_neg, k=hard_num + 1, dim=1, largest=False)  # (c, hard_num + 1)
 
         d_pos = torch.diag(dist_matrix).unsqueeze(dim=-1)  # (c, 1)
-        d_neg = dist_hardest[:, 1:]  # (c, hard_num - 1)
+        d_neg = dist_hardest[:, 1:]  # (c, hard_num)
         # loss_p2p = d_mean_pos / (d_mean_neg + self.eps)
         loss_p2p = (d_pos - d_neg + margin).max(torch.Tensor([1e-6]).cuda()[0])
 
@@ -384,7 +370,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
+        # l_t = aligner.label_refine(f_t, [p_1, p_2], l_t, False)
         _loss_white = aligner.whiten_class_ware(f_s, l_s, f_t, l_t)
         print(_loss_white.cpu().item(), '\t', i)
         optimizer.zero_grad()
@@ -415,7 +401,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
+        # l_t = aligner.label_refine(f_t, [p_1, p_2], l_t, False)
         _loss_class = aligner.align_class(f_s, l_s, f_t, l_t)
         print(_loss_class)
         optimizer.zero_grad()
@@ -431,7 +417,7 @@ if __name__ == '__main__':
         x_s, x_t, l_s, l_t = rand_x_l()
         _, _, f_s = model(x_s)
         p_1, p_2, f_t = model(x_t)
-        l_t = aligner.feature_label_assign(f_t, [p_1, p_2])
+        # l_t = aligner.label_refine(f_t, [p_1, p_2], l_t, False)
         _loss_ins = aligner.align_instance(f_s, l_s, f_t, l_t)
         print(_loss_ins)
         optimizer.zero_grad()

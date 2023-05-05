@@ -65,11 +65,12 @@ class LoveDA(Dataset):
             if self.label_type == 'id':
                 # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
                 mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
-                # avoid noise label
             else:
-                mask = torch.from_numpy(np.load(f'{self.cls_filepath_list[idx]}.npy')).float()
-                # mask = torch.load(f'{self.cls_filepath_list[idx]}.pt', map_location=torch.device('cpu'))
+                # mask = torch.from_numpy(np.load(f'{self.cls_filepath_list[idx]}.npy')).float()
+                mask = torch.load(f'{self.cls_filepath_list[idx]}.pt', map_location=torch.device('cpu'))
+            # avoid noise label
             mask[mask >= self.n_classes] = self.ignore_label
+            # data augmentation
             if self.transforms is not None:
                 blob = self.transforms(image=image, mask=mask)
                 image = blob['image']

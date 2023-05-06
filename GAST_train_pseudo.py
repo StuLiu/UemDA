@@ -23,11 +23,14 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo
+from module.gast.class_balance import ClassBalanceLoss
 
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
+parser.add_argument('--refine-label', type=str2bool, default=0, help='whether align domain or not')
+parser.add_argument('--balance-class', type=str2bool, default=1, help='whether align domain or not')
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -63,7 +66,11 @@ def main():
         num_classes=7,
         is_ins_norm=True,
     )).cuda()
-    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.998)
+    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.996)
+    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, min_ratio=0.1,
+                                 is_balance=args.balance_class)
+    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, min_ratio=0.1,
+                                 is_balance=args.balance_class)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
@@ -78,7 +85,6 @@ def main():
 
     optimizer = optim.SGD(model.parameters(),
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
-    optimizer.zero_grad()
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
 
@@ -87,7 +93,6 @@ def main():
 
         if i_iter < cfg.FIRST_STAGE_STEP:
             # Train with Source
-            optimizer.zero_grad()
 
             # source infer
             batch = trainloader_iter.next()
@@ -106,12 +111,13 @@ def main():
             _, _, feat_t = model(images_t)
 
             # Loss: source segmentation + global alignment
-            loss_seg = loss_calc([pred_s1, pred_s2], label_s, multi=True)
+            loss_seg = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
+            loss_seg = cb_loss_s(loss_seg, label_s)
+
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
             loss = loss_seg + lmd_1 * loss_domain
-            if torch.isnan(loss):
-                print('>>>>>>>>>>>>>>>>>>>>>>>>>loss is nan!<<<<<<<<<<<<<<<<<<<<<<<')
-                continue
+
+            optimizer.zero_grad()
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
@@ -121,6 +127,7 @@ def main():
                        f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
         else:
             log_loss = ''
+            lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
             # Second Stage
             if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
@@ -158,17 +165,19 @@ def main():
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft, refine=True)
+                label_t_hard = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft,
+                                                    refine=args.refine_label)
 
                 # aligner.update_prototype(feat_s, label_s)
-                aligner.update_prototype(feat_t, label_t_soft)
+                aligner.update_prototype(feat_t, label_t_hard)
 
                 # loss
-                loss_source = loss_calc([pred_s1, pred_s2], label_s, multi=True)
-                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_soft, multi=True)
+                loss_source = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
+                loss_source = cb_loss_s(loss_source, label_s)               # balance op
+                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, reduction='none', multi=True)
+                loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)          # balance op
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-
-                loss = loss_source + loss_pseudo + lmd_1 * loss_domain
+                loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -177,7 +186,7 @@ def main():
                 optimizer.step()
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
                            f' domain={loss_domain:.3e},' \
-                           f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}'
+                           f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:

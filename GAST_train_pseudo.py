@@ -29,8 +29,8 @@ from module.gast.class_balance import ClassBalanceLoss
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
-parser.add_argument('--refine-label', type=str2bool, default=0, help='whether align domain or not')
-parser.add_argument('--balance-class', type=str2bool, default=1, help='whether align domain or not')
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label or not')
+parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class or not')
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -67,10 +67,8 @@ def main():
         is_ins_norm=True,
     )).cuda()
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.996)
-    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, min_ratio=0.1,
-                                 is_balance=args.balance_class)
-    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, min_ratio=0.1,
-                                 is_balance=args.balance_class)
+    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, is_balance=args.balance_class)
+    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, is_balance=args.balance_class)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
@@ -190,8 +188,10 @@ def main():
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
-            logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
+            # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
+            logger.info(f'source domain: {cb_loss_s}')
+            logger.info(f'target domain: {cb_loss_t}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)

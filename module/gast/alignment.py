@@ -146,8 +146,8 @@ class Aligner:
         label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return label_t_hard  # (b, h, w)
 
-    @staticmethod
-    def _logits_norm(logits):
+
+    def _logits_norm(self, logits):
         """ Keep the sum==1 in class channel.
         Args:
             logits: Tensor, probabilities, shape=(b, c, h, w)
@@ -156,7 +156,7 @@ class Aligner:
         """
         assert len(logits.shape) == 4
         logits_sum = torch.sum(logits, dim=1, keepdim=True)
-        logits_normed = logits / logits_sum
+        logits_normed = logits / (logits_sum + self.eps)
         return logits_normed
 
     def _compute_local_prototypes(self, feat, label, update=False, decay=0.999):

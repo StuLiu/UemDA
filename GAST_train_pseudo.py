@@ -28,9 +28,9 @@ from module.gast.class_balance import ClassBalanceLoss
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')
-parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
+parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='config path')
 parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label or not')
-parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class or not')
+parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 args = parser.parse_args()
 cfg = import_config(args.config_path)

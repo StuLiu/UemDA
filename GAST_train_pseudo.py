@@ -190,8 +190,9 @@ def main():
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
-            logger.info(f'source domain: {cb_loss_s}')
-            logger.info(f'target domain: {cb_loss_t}')
+            if args.balance_class:
+                logger.info(f'source domain: {cb_loss_s}')
+                logger.info(f'target domain: {cb_loss_t}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)

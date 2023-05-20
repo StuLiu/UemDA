@@ -32,7 +32,6 @@ def str2bool(v):
 def get_curr_time():
     return f'{time.strftime("%Y%m%d%H%M%S", time.localtime())}'
 
-
 def pad_image(img, target_size):
     """Pad an image up to the target size."""
     rows_missing = target_size[0] - img.shape[2]
@@ -169,6 +168,7 @@ def portion_warmup(i_iter, start_iter, end_iter):
         return 0
     return 2.0 / (1.0 + exp(-10 * float(i_iter - start_iter) / float(end_iter - start_iter))) - 1
     # return float(i_iter - start_iter) / float(end_iter - start_iter)
+
 
 def lr_poly(base_lr, i_iter, max_iter, power):
     return base_lr * ((1 - float(i_iter) / max_iter) ** power)

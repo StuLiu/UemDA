@@ -114,38 +114,53 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
-    def label_refine(self, feat_t, preds_t, label_t_soft, refine=True):
+    def label_refine(self, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0):
         """Refine the pseudo label online by the distances between features and prototypes.
         Args:
             feat_t: Tensor, feature map, (b, k, h, w)
             preds_t: Tensor or [Tensor, ], predicted logits, (b, c, h, w) or [(b, c, h, w), ]
             label_t_soft: Tensor, pseudo labels, (b, c, h, w)
             refine: bool, if refine the pseudo labels or not.
+            mode:
+            temp:
         Returns:
             label_t_hard: Tensor, refined pseudo labels, (b, h, w)
         """
+        assert mode in ['all', 'p', 'l']
+
         if refine:
-            b, k, h, w = feat_t.shape
-            feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, c)
-            simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)  # (b*h*w, c) Pearson distance
-            # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
-            simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
-            simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
-                                          mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-            weight_1 = torch.softmax(simi_matrix, dim=1)  # (b, c, h, w)
-            if isinstance(preds_t, list):
-                assert len(preds_t) == 2
-                x1 = tnf.interpolate(preds_t[0], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                weight_2 = (x1.softmax(dim=1) + x2.softmax(dim=1)) * 0.5  # (b, c, h, w)
-            else:
-                weight_2 = torch.softmax(preds_t, dim=1)  # (b, c, h, w)
-            weight = (weight_1 + weight_2) * 0.5
+            weight = 0
+
+            if mode in ['all', 'p']:
+                b, k, h, w = feat_t.shape
+                feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)                  # (b*h*w, c)
+                simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)     # (b*h*w, c) Pearson distance
+                # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
+                simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
+                simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
+                                              mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
+                weight += torch.softmax(simi_matrix, dim=1)                         # (b, c, h, w)
+
+            if mode in ['all', 'l']:
+                if isinstance(preds_t, list):
+                    assert len(preds_t) == 2
+                    x1 = tnf.interpolate(preds_t[0], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    weight += (self._softmax_T(x1, temp) + self._softmax_T(x2, temp)) * 0.5     # (b, c, h, w)
+                else:
+                    weight += self._softmax_T(preds_t, temp)                                    # (b, c, h, w)
+            if mode == 'all':
+                weight *= 0.5
+
             label_t_soft = weight * label_t_soft
             label_t_soft = self._logits_norm(label_t_soft)
         label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
         return label_t_hard  # (b, h, w)
 
+    @staticmethod
+    def _softmax_T(feat, temp=1.0, dim=1):
+        assert temp > 0
+        return torch.softmax(feat / temp, dim=dim)
 
     def _logits_norm(self, logits):
         """ Keep the sum==1 in class channel.

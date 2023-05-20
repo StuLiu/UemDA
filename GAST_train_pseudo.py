@@ -27,12 +27,25 @@ from module.gast.class_balance import ClassBalanceLoss
 
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
+
+# arg parser
+# GAST_train_pseudo.py --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 0.5
+# GAST_train_pseudo.py --config-path st.gast.2rural --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 1000
+
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='config path')
-parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label or not')
-parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
+
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
+
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label or not')
+parser.add_argument('--refine-mode', type=str, default='all', help='whether refine the pseudo label or not')
+parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label or not')
+
+parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
+parser.add_argument('--balance-temp', type=float, default=0.5, help='whether refine the pseudo label or not')
 args = parser.parse_args()
+
+# get config from config.py
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
 
@@ -67,8 +80,10 @@ def main():
         is_ins_norm=True,
     )).cuda()
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.996)
-    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, is_balance=args.balance_class)
-    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996, is_balance=args.balance_class)
+    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996,
+                                 is_balance=args.balance_class, temperature=args.balance_temp)
+    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996,
+                                 is_balance=args.balance_class, temperature=args.balance_temp)
     # source loader
     trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
     trainloader_iter = Iterator(trainloader)
@@ -164,7 +179,9 @@ def main():
                 pred_t1, pred_t2, feat_t = model(images_t)
 
                 label_t_hard = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft,
-                                                    refine=args.refine_label)
+                                                    refine=args.refine_label,
+                                                    mode=args.refine_mode,
+                                                    temp=args.refine_temp)
 
                 # aligner.update_prototype(feat_s, label_s)
                 aligner.update_prototype(feat_t, label_t_hard)
@@ -193,7 +210,7 @@ def main():
             if args.balance_class:
                 logger.info(f'source domain: {cb_loss_s}')
                 logger.info(f'target domain: {cb_loss_t}')
-        if (i_iter + 1) % cfg.EVAL_EVERY == 0:
+        if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)

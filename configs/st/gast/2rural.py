@@ -9,7 +9,7 @@ IGNORE_LABEL = -1
 MOMENTUM = 0.9
 NUM_CLASSES = 7
 
-SNAPSHOT_DIR = './log/GAST/2rural'
+SNAPSHOT_DIR = '../log/GAST/2rural'
 
 #Hyper Paramters
 WEIGHT_DECAY = 0.0005
@@ -19,6 +19,7 @@ NUM_STEPS_STOP = 5000  # Use damping instead of early stopping
 FIRST_STAGE_STEP = 2000  # for first stage
 PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9  # lr poly power
+EVAL_FROM = int(NUM_STEPS_STOP * 0.6) - 1
 EVAL_EVERY = 500
 GENERATE_PSEDO_EVERY = 500
 MULTI_LAYER = False

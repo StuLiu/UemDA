@@ -3,6 +3,9 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import torch
+from glob import glob
+from tqdm import tqdm
+import cv2
 
 
 class VisualizeSegmm(object):
@@ -23,6 +26,25 @@ class VisualizeSegmm(object):
         color_y = Image.fromarray(y_pred)
         color_y.putpalette(self.palette)
         color_y.save(os.path.join(self.out_dir, filename))
+
+
+def vis_dir(input_dir, palette):
+    out_dir = input_dir + '_color'
+    viser = VisualizeSegmm(out_dir, palette)
+    img_paths = glob(r'' + input_dir + '/*.png')
+    img_paths.sort()
+    for img_path in tqdm(img_paths):
+        pred = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) - 1   # 0-7 -> -1, 6
+        viser(pred, os.path.basename(img_path))
+        # break
+
+
+if __name__ == '__main__':
+    from utils.tools import palette
+    vis_dir(input_dir='../LoveDA/Train/Rural/masks_png', palette=palette)
+    vis_dir(input_dir='../LoveDA/Train/Urban/masks_png', palette=palette)
+    vis_dir(input_dir='../LoveDA/Val/Rural/masks_png', palette=palette)
+    vis_dir(input_dir='../LoveDA/Val/Urban/masks_png', palette=palette)
 
 
 # Generate datasets
@@ -78,10 +100,10 @@ class PCA(torch.nn.Module):
         return x.matmul(proj_mat)
 
 
-if __name__ == "__main__":
-    _input, _y = generate_data2()
-    pca = PCA(n_components=2)
-    trans_x = pca(_input)
-    _y = _y.cpu().numpy()
-    plt.scatter(trans_x.T[0].cpu().numpy(), trans_x.T[1].cpu().numpy(), c=_y)
-    plt.show()
+# if __name__ == "__main__":
+#     _input, _y = generate_data2()
+#     pca = PCA(n_components=2)
+#     trans_x = pca(_input)
+#     _y = _y.cpu().numpy()
+#     plt.scatter(trans_x.T[0].cpu().numpy(), trans_x.T[1].cpu().numpy(), c=_y)
+#     plt.show()

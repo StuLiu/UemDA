@@ -38,6 +38,7 @@ class LoveDA(BaseData):
 
     PALETTE = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
     SIZE=(1024, 1024)
+    IGNORE_LABEL=-1
 
     def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
-        super().__init__(image_dir, mask_dir, transforms, label_type, offset=-1)
+        super().__init__(image_dir, mask_dir, transforms, label_type, offset=-1, ignore_label=LoveDA.IGNORE_LABEL)

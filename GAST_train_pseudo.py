@@ -79,10 +79,12 @@ def main():
         num_classes=7,
         is_ins_norm=True,
     )).cuda()
-    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7, ignore_label=-1, decay=0.996)
-    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996,
+    ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
+    aligner = Aligner(logger=logger, feat_channels=2048, class_num=7,
+                      ignore_label=ignore_label, decay=0.996)
+    cb_loss_s = ClassBalanceLoss(class_num=7, ignore_label=ignore_label, decay=0.996,
                                  is_balance=args.balance_class, temperature=args.balance_temp)
-    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996,
+    cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=ignore_label, decay=0.996,
                                  is_balance=args.balance_class, temperature=args.balance_temp)
     # source loader
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)

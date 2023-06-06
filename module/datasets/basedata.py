@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 class BaseData(Dataset):
-    def __init__(self, image_dir, mask_dir, transforms=None, label_type='id', offset=-1):
+    def __init__(self, image_dir, mask_dir, transforms=None, label_type='id', offset=-1, ignore_label=-1):
         assert label_type in ['id', 'prob']
         self.label_type = label_type
         self.n_classes = 7
-        self.ignore_label = -1
+        self.ignore_label = ignore_label
         self.offset = offset
         self.rgb_filepath_list = []
         self.cls_filepath_list = []

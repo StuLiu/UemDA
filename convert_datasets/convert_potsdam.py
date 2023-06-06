@@ -38,12 +38,11 @@ def clip_big_image(image_path, clip_save_dir, args, to_label=False):
     # clipped image, the intersection　of width and height is determined.
     # For example, given one 5120 x 5120 original image, the clip size is
     # 512 and stride size is 256, thus it would generate 20x20 = 400 images
-    # whose size are all 512x512.
+    # whose size are all 512x512. Red-Green-Blue-IR
     if to_label:
         image = mmcv.imread(image_path)
     else:
-        image = sio.imread(image_path)[:, :, :3]        # (RGB)
-        image = image[:, :, ::-1]                       # (BGR)
+        image = sio.imread(image_path)[:, :, [1, 0, 3]]         # Green-Red-IR
 
     h, w, c = image.shape
     clip_size = args.clip_size

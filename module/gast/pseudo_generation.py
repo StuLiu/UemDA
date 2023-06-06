@@ -7,12 +7,10 @@
 @e-mail  : liuwa@hnu.edu.cn
 """
 
-import os
-import torch
 import cv2
-from tqdm import tqdm
-from utils.tools import *
+from module.utils.tools import *
 from module.viz import VisualizeSegmm
+from module.datasets import *
 
 
 def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'):
@@ -73,7 +71,7 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
     save_pseudo_color_path = save_pseudo_label_path + '_color'
     if not os.path.exists(save_pseudo_color_path):
         os.makedirs(save_pseudo_color_path)
-    viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
+    viz_op = VisualizeSegmm(save_pseudo_color_path, eval(_cfg.DATASETS).PALETTE)
 
     with torch.no_grad():
         _i = 0

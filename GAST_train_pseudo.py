@@ -7,16 +7,15 @@
 """
 import torch.multiprocessing
 
-import cv2
 import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 from eval import evaluate
-from utils.tools import *
-from module.Encoder import Deeplabv2
-# from module.dca_modules import *
-from data.loveda import LoveDALoader
+from module.utils.tools import *
+from module.models.Encoder import Deeplabv2
+from module.datasets.daLoader import DALoader
+from module.datasets import LoveDA, IsprsDA
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
@@ -26,7 +25,7 @@ from module.gast.pseudo_generation import gener_target_pseudo
 from module.gast.class_balance import ClassBalanceLoss
 
 
-palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
+# palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 # arg parser
 # GAST_train_pseudo.py --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 0.5
@@ -85,15 +84,16 @@ def main():
     cb_loss_t = ClassBalanceLoss(class_num=7, ignore_label=-1, decay=0.996,
                                  is_balance=args.balance_class, temperature=args.balance_temp)
     # source loader
-    trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
-    trainloader_iter = Iterator(trainloader)
+    sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
+    sourceloader_iter = Iterator(sourceloader)
     # pseudo loader (target)
-    pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
+    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
     # target loader
-    targetloader = LoveDALoader(cfg.TARGET_DATA_CONFIG)
+    targetloader = DALoader(cfg.TARGET_DATA_CONFIG, cfg.DATASETS)
     targetloader_iter = Iterator(targetloader)
-
-    epochs = cfg.NUM_STEPS_STOP / len(trainloader)
+    logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}, pseudo={len(pseudo_loader)}')
+    # print(len(targetloader))
+    epochs = cfg.NUM_STEPS_STOP / len(sourceloader)
     logger.info('epochs ~= %.3f' % epochs)
 
     optimizer = optim.SGD(model.parameters(),
@@ -108,7 +108,7 @@ def main():
             # Train with Source
 
             # source infer
-            batch = trainloader_iter.next()
+            batch = sourceloader_iter.next()
             images_s, label_s = batch[0]
             images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
             pred_s1, pred_s2, feat_s = model(images_s)
@@ -149,12 +149,13 @@ def main():
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, save_prob=True, slide=True)
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
+                                    size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
                 logger.info(target_config)
-                targetloader = LoveDALoader(target_config)
+                targetloader = DALoader(target_config, cfg.DATASETS)
 
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
@@ -164,7 +165,7 @@ def main():
             if i_iter < cfg.NUM_STEPS_STOP:
                 model.train()
                 # source output
-                batch_s = trainloader_iter.next()
+                batch_s = sourceloader_iter.next()
                 images_s, label_s = batch_s[0]
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
@@ -221,6 +222,9 @@ def main():
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
             break
+
+    shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
+
 
 
 if __name__ == '__main__':

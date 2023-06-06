@@ -2,11 +2,11 @@ import argparse
 import os.path as osp
 import torch.optim as optim
 from eval import evaluate
-from utils.tools import *
-from module.Encoder import Deeplabv2
-from module.Discriminator import FCDiscriminator
-from data.loveda import LoveDALoader
-from utils.tools import COLOR_MAP
+from module.utils.tools import *
+from module.models.Encoder import Deeplabv2
+from module.models.Discriminator import FCDiscriminator
+from module.datasets.loveda import LoveDALoader
+from module.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad

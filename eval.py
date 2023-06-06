@@ -1,7 +1,7 @@
-from data.loveda import LoveDALoader
+from module.datasets.daLoader import DALoader
 import logging
 logger = logging.getLogger(__name__)
-from utils.tools import *
+from module.utils.tools import *
 from ever.util.param_util import count_model_parameters
 from module.viz import VisualizeSegmm
 from argparse import ArgumentParser
@@ -22,7 +22,7 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
         count_model_parameters(model, logger)
     model.eval()
     print(cfg.EVAL_DATA_CONFIG)
-    eval_dataloader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
+    eval_dataloader = DALoader(cfg.PSEUDO_DATA_CONFIG)
     metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
     parser.add_argument('--tta', type=str2bool, default=False, help='save dir path')
     args = parser.parse_args()
-    from module.Encoder import Deeplabv2
+    from module.models.Encoder import Deeplabv2
     cfg = import_config(args.config_path, copy=False, create=False)
     log_dir = os.path.dirname(args.ckpt_path)
     cfg.SNAPSHOT_DIR = log_dir

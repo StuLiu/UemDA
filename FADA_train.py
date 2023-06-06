@@ -1,11 +1,10 @@
-from collections import OrderedDict
 import os.path as osp
 # from module.CLAN_G import Deeplabv2
-from module.Encoder import Deeplabv2
-from module.Discriminator import PixelDiscriminator
-from data.loveda import LoveDALoader
+from module.models.Encoder import Deeplabv2
+from module.models.Discriminator import PixelDiscriminator
+from module.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-from utils.tools import *
+from module.utils.tools import *
 import argparse
 from tqdm import tqdm
 from torch.nn.utils import clip_grad

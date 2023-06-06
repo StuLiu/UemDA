@@ -1,10 +1,9 @@
 import argparse
-import torch
 import torch.optim as optim
 import os.path as osp
-from module.Deeplabv2_MMD import Deeplabv2_MMD
-from data.loveda import LoveDALoader
-from utils.tools import *
+from module.models.Deeplabv2_MMD import Deeplabv2_MMD
+from module.datasets.loveda import LoveDALoader
+from module.utils.tools import *
 from ever.core.iterator import Iterator
 from eval import evaluate
 from tqdm import tqdm

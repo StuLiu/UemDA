@@ -9,7 +9,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as tnf
-from utils.tools import loss_calc
 
 
 class ClassBalanceLoss(nn.Module):

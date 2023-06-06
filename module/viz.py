@@ -28,23 +28,30 @@ class VisualizeSegmm(object):
         color_y.save(os.path.join(self.out_dir, filename))
 
 
-def vis_dir(input_dir, palette):
+def vis_dir(input_dir, palette, offset=0):
     out_dir = input_dir + '_color'
     viser = VisualizeSegmm(out_dir, palette)
     img_paths = glob(r'' + input_dir + '/*.png')
     img_paths.sort()
     for img_path in tqdm(img_paths):
-        pred = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) - 1   # 0-7 -> -1, 6
+        pred = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) + offset   # if offset=-1, 0-7 -> -1, 6
         viser(pred, os.path.basename(img_path))
         # break
 
 
 if __name__ == '__main__':
-    from utils.tools import palette
-    vis_dir(input_dir='../LoveDA/Train/Rural/masks_png', palette=palette)
-    vis_dir(input_dir='../LoveDA/Train/Urban/masks_png', palette=palette)
-    vis_dir(input_dir='../LoveDA/Val/Rural/masks_png', palette=palette)
-    vis_dir(input_dir='../LoveDA/Val/Urban/masks_png', palette=palette)
+    from module.datasets.loveda import LoveDA
+    from module.datasets.isprsda import IsprsDA
+
+    vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.palette, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.palette, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Val/Rural/masks_png', palette=LoveDA.palette, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Val/Urban/masks_png', palette=LoveDA.palette, offset=-1)
+
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.palette, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.palette, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.palette, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.palette, offset=0)
 
 
 # Generate datasets

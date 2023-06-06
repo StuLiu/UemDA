@@ -2,36 +2,36 @@ from albumentations import HorizontalFlip, VerticalFlip, RandomRotate90, Normali
 from albumentations import *
 import ever as er
 
-
+DATASETS = 'LoveDA'
 TARGET_SET = 'URBAN'
 
 source_dir = dict(
     image_dir=[
-        './LoveDA/Train/Rural/images_png/',
+        'data/LoveDA/Train/Rural/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Train/Rural/masks_png/',
+        'data/LoveDA/Train/Rural/masks_png/',
     ],
 )
 target_dir = dict(
     image_dir=[
-        './LoveDA/Val/Urban/images_png/',
+        'data/LoveDA/Val/Urban/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Val/Urban/masks_png/',
+        'data/LoveDA/Val/Urban/masks_png/',
     ],
 )
 val_dir = dict(
     image_dir=[
-        './LoveDA/Train/Urban/images_png/',
+        'data/LoveDA/Train/Urban/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Train/Urban/masks_png/',
+        'data/LoveDA/Train/Urban/masks_png/',
     ],
 )
 test_dir = dict(
     image_dir=[
-        './LoveDA/Test/Urban/images_png/'
+        'data/LoveDA/Test/Urban/images_png/'
     ],
     mask_dir=[
         None
@@ -56,7 +56,7 @@ SOURCE_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=4,
+    num_workers=8,
 )
 
 
@@ -78,7 +78,7 @@ TARGET_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=4,
+    num_workers=8,
 )
 
 PSEUDO_DATA_CONFIG = dict(

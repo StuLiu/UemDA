@@ -1,10 +1,9 @@
-import os
 import warnings
 
-from data.loveda import LoveDALoader
-from utils.tools import *
+from module.datasets.loveda import LoveDALoader
+from module.utils.tools import *
 from skimage.io import imsave
-from module.Encoder import Deeplabv2
+from module.models.Encoder import Deeplabv2
 from argparse import ArgumentParser
 
 

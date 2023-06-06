@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import Dataset, DataLoader
 import glob
 import os
@@ -11,11 +12,8 @@ from torch.utils.data import SequentialSampler, RandomSampler
 from ever.api.data import CrossValSamplerGenerator
 import numpy as np
 import logging
-from utils.tools import seed_worker
 
 logger = logging.getLogger(__name__)
-
-
 
 LABEL_MAP = OrderedDict(
     Background=0,
@@ -28,11 +26,14 @@ LABEL_MAP = OrderedDict(
 )
 
 
-
 class LoveDA(Dataset):
-    def __init__(self, image_dir, mask_dir, transforms=None):
+    def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
+        assert label_type in ['id', 'prob']
+        self.label_type = label_type
+        self.n_classes = 7
+        self.ignore_label = -1
         self.rgb_filepath_list = []
-        self.cls_filepath_list= []
+        self.cls_filepath_list = []
         if isinstance(image_dir, list):
             for img_dir_path, mask_dir_path in zip(image_dir, mask_dir):
                 self.batch_generate(img_dir_path, mask_dir_path)
@@ -41,7 +42,6 @@ class LoveDA(Dataset):
             self.batch_generate(image_dir, mask_dir)
 
         self.transforms = transforms
-
 
     def batch_generate(self, image_dir, mask_dir):
         rgb_filepath_list = glob.glob(os.path.join(image_dir, '*.tif'))
@@ -58,14 +58,22 @@ class LoveDA(Dataset):
 
     def __getitem__(self, idx):
         image = imread(self.rgb_filepath_list[idx])
+        if self.label_type == 'prob':
+            image = torch.from_numpy(image).float().permute(2, 0, 1)
         if len(self.cls_filepath_list) > 0:
-            # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
-            mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
+            if self.label_type == 'id':
+                # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
+                mask = imread(self.cls_filepath_list[idx]).astype(np.long) - 1
+            else:
+                # mask = torch.from_numpy(np.load(f'{self.cls_filepath_list[idx]}.npy')).float()
+                mask = torch.load(f'{self.cls_filepath_list[idx]}.pt', map_location=torch.device('cpu'))
+            # avoid noise label
+            mask[mask >= self.n_classes] = self.ignore_label
+            # data augmentation
             if self.transforms is not None:
                 blob = self.transforms(image=image, mask=mask)
                 image = blob['image']
                 mask = blob['mask']
-
             return image, dict(cls=mask, fname=os.path.basename(self.rgb_filepath_list[idx]))
         else:
             if self.transforms is not None:
@@ -78,11 +86,13 @@ class LoveDA(Dataset):
         return len(self.rgb_filepath_list)
 
 
-
 class LoveDALoader(DataLoader, ConfigurableMixin):
     def __init__(self, config):
         ConfigurableMixin.__init__(self, config)
-        dataset = LoveDA(self.config.image_dir, self.config.mask_dir, self.config.transforms)
+        dataset = LoveDA(image_dir=self.config.image_dir,
+                         mask_dir=self.config.mask_dir,
+                         transforms=self.config.transforms,
+                         label_type=self.config.label_type)
 
         if self.config.CV.i != -1:
             CV = CrossValSamplerGenerator(dataset, distributed=True, seed=2333)
@@ -97,18 +107,20 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
                 dataset)
 
         super(LoveDALoader, self).__init__(dataset,
-                                       self.config.batch_size,
-                                       sampler=sampler,
-                                       num_workers=self.config.num_workers,
-                                       pin_memory=True,
-                                       drop_last=True
-                                       )
+                                           self.config.batch_size,
+                                           sampler=sampler,
+                                           num_workers=self.config.num_workers,
+                                           pin_memory=self.config.pin_memory,
+                                           drop_last=True
+                                           )
+
     def set_default_config(self):
         self.config.update(dict(
             image_dir=None,
             mask_dir=None,
             batch_size=4,
             num_workers=4,
+            pin_memory=True,
             scale_size=None,
             transforms=Compose([
                 OneOf([
@@ -119,4 +131,5 @@ class LoveDALoader(DataLoader, ConfigurableMixin):
                 Normalize(mean=(), std=(), max_pixel_value=1, always_apply=True),
                 ToTensorV2()
             ]),
+            label_type='id',
         ))

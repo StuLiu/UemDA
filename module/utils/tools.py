@@ -155,7 +155,7 @@ def mixup(s_img, s_lab, t_img, t_lab):
 def import_config(config_name, prefix='configs', copy=True, create=True):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
-    m.SNAPSHOT_DIR += get_curr_time()
+    # m.SNAPSHOT_DIR += get_curr_time()
     if create:
         os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
     if copy:
@@ -314,17 +314,17 @@ def ias_thresh(conf_dict, n_class, alpha, w=None, gamma=1.0):
     return cls_thresh
 
 
-COLOR_MAP = OrderedDict(
-    Background=(255, 255, 255),
-    Building=(255, 0, 0),
-    Road=(255, 255, 0),
-    Water=(0, 0, 255),
-    Barren=(159, 129, 183),
-    Forest=(0, 255, 0),
-    Agricultural=(255, 195, 128),
-)
-
-palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
+# COLOR_MAP = OrderedDict(
+#     Background=(255, 255, 255),
+#     Building=(255, 0, 0),
+#     Road=(255, 255, 0),
+#     Water=(0, 0, 255),
+#     Barren=(159, 129, 183),
+#     Forest=(0, 255, 0),
+#     Agricultural=(255, 195, 128),
+# )
+#
+# palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 
 def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None, logger=None):
@@ -400,6 +400,19 @@ def count_model_parameters(module, _default_logger=None):
     _default_logger.info('#params: {}, {} M'.format(cnt, round(cnt / float(1e6), 3)))
 
     return cnt
+
+
+class BestLog:
+    def __init__(self, high=True):
+        self.value = -999999 if high else 999999
+        self.iter = 0
+        self.log_str = ''
+
+    def update(self, val, iter, log_str):
+        cond = (val >= self.value) if self.high else (val <= self.value)
+        if cond:
+            self.iter = iter
+            self.log_str = log_str
 
 
 if __name__ == '__main__':

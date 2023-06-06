@@ -2,40 +2,40 @@ from albumentations import HorizontalFlip, VerticalFlip, RandomRotate90, Normali
 from albumentations import *
 import ever as er
 
-
-TARGET_SET = 'RURAL'
+DATASETS = 'IsprsDA'
+TARGET_SET = 'Potsdam'
 
 source_dir = dict(
     image_dir=[
-        './LoveDA/Train/Urban/images_png/',
+        'data/IsprsDA/Vaihingen/img_dir/train',
     ],
     mask_dir=[
-        './LoveDA/Train/Urban/masks_png/',
+        'data/IsprsDA/Vaihingen/ann_dir/train',
     ],
 )
 target_dir = dict(
     image_dir=[
-        './LoveDA/Val/Rural/images_png/',
+        'data/IsprsDA/Potsdam/img_dir/train',
     ],
     mask_dir=[
-        './LoveDA/Val/Rural/masks_png/',
+        None,
     ],
 )
 val_dir = dict(
     image_dir=[
-        './LoveDA/Train/Rural/images_png/',
+        'data/IsprsDA/Potsdam/img_dir/val',
     ],
     mask_dir=[
-        './LoveDA/Train/Rural/masks_png/',
+        'data/IsprsDA/Potsdam/ann_dir/val',
     ],
 )
 test_dir = dict(
     image_dir=[
-        './LoveDA/Test/Rural/images_png/'
+        'data/IsprsDA/Potsdam/img_dir/val'
     ],
     mask_dir=[
-        None,
-    ]
+        None
+    ],
 )
 
 SOURCE_DATA_CONFIG = dict(
@@ -48,11 +48,10 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661,  35.66528876, 33.75830885),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
-
     ]),
     CV=dict(k=10, i=-1),
     training=True,
@@ -71,8 +70,8 @@ TARGET_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661,  35.66528876, 33.75830885),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -86,11 +85,10 @@ PSEUDO_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
     mask_dir=target_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
-
     ]),
     CV=dict(k=10, i=-1),
     training=False,
@@ -102,11 +100,10 @@ EVAL_DATA_CONFIG = dict(
     image_dir=val_dir['image_dir'],
     mask_dir=val_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
-
     ]),
     CV=dict(k=10, i=-1),
     training=False,
@@ -118,14 +115,10 @@ TEST_DATA_CONFIG = dict(
     image_dir=test_dir['image_dir'],
     mask_dir=test_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
-        # Normalize(mean=(123.675, 116.28, 103.53),
-        #           std=(58.395, 57.12, 57.375),
-        #           max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
-
     ]),
     CV=dict(k=10, i=-1),
     training=False,

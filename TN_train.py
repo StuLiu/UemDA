@@ -2,11 +2,11 @@ import argparse
 from torch.autograd import Variable
 import torch.optim as optim
 import os.path as osp
-from module.Encoder import Deeplabv2
-from module.Discriminator import FCDiscriminator
-from data.loveda import LoveDALoader
+from module.models.Encoder import Deeplabv2
+from module.models.Discriminator import FCDiscriminator
+from module.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-from utils.tools import *
+from module.utils.tools import *
 from tqdm import tqdm
 from eval import evaluate
 from torch.nn.utils import clip_grad

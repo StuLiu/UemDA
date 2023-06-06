@@ -6,7 +6,6 @@
 @Date    : 2023/3/13 下午9:43
 @e-mail  : 1183862787@qq.com
 """
-import collections
 
 import torch
 import torch.nn as nn
@@ -347,7 +346,7 @@ class DownscaleLabel(nn.Module):
 
 
 if __name__ == '__main__':
-    from module.Encoder import Deeplabv2
+    from module.models.Encoder import Deeplabv2
     import torch.optim as optim
     import logging
 
@@ -444,7 +443,7 @@ if __name__ == '__main__':
     print('grad of loss instance')
     print('=========================================================')
 
-    from utils.tools import loss_calc
+    from module.utils.tools import loss_calc
 
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()

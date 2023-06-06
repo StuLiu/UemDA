@@ -1,17 +1,14 @@
 import argparse
-import torch
 import torch.optim as optim
 import os.path as osp
-from module.Encoder import Deeplabv2
-from data.loveda import LoveDALoader
+from module.models.Encoder import Deeplabv2
+from module.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-from utils.tools import *
-from torch.nn.utils import clip_grad
-import torch.nn.functional as F
+from module.utils.tools import *
 from tqdm import tqdm
 from eval import evaluate
 import torch.nn as nn
-import torch.backends.cudnn as cudnn
+
 parser = argparse.ArgumentParser(description='Run Baseline methods.')
 
 parser.add_argument('--config_path',  type=str,

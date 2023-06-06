@@ -8,7 +8,6 @@
 """
 import torch
 import torch.nn as nn
-import torch.nn.functional as tnf
 
 
 class TripletLoss(nn.Module):
@@ -57,10 +56,9 @@ class TripletLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    from module.Encoder import Deeplabv2
+    from module.models.Encoder import Deeplabv2
     from module.gast.alignment import DownscaleLabel
     import torch.optim as optim
-    import logging
 
     model = Deeplabv2(dict(
         backbone=dict(

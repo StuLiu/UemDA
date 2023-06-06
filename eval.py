@@ -5,6 +5,7 @@ from module.utils.tools import *
 from ever.util.param_util import count_model_parameters
 from module.viz import VisualizeSegmm
 from argparse import ArgumentParser
+from module.datasets import *
 
 
 def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, tta=False):
@@ -13,39 +14,38 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     #torch.backends.cudnn.enabled = False
     if cfg.SNAPSHOT_DIR is not None:
         vis_dir = os.path.join(cfg.SNAPSHOT_DIR, 'vis-{}'.format(os.path.basename(ckpt_path)))
-        palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
-        viz_op = VisualizeSegmm(vis_dir, palette)
+        viz_op = VisualizeSegmm(vis_dir, eval(cfg.DATASETS).PALETTE)
     if not is_training:
         model_state_dict = torch.load(ckpt_path)
         model.load_state_dict(model_state_dict,  strict=True)
         logger.info('[Load params] from {}'.format(ckpt_path))
         count_model_parameters(model, logger)
     model.eval()
-    print(cfg.EVAL_DATA_CONFIG)
-    eval_dataloader = DALoader(cfg.PSEUDO_DATA_CONFIG)
-    metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
-    with torch.no_grad():
-        for ret, ret_gt in tqdm(eval_dataloader):
-            ret = ret.cuda()
-            cls = pre_slide(model, ret, tta=tta) if slide else model(ret)
-            cls = cls.argmax(dim=1).cpu().numpy()
+    # print(cfg.EVAL_DATA_CONFIG)
+    # eval_dataloader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
+    # metric_op = er.metric.PixelMetric(len(eval(cfg.DATASETS).COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
+    # with torch.no_grad():
+    #     for ret, ret_gt in tqdm(eval_dataloader):
+    #         ret = ret.cuda()
+    #         cls = pre_slide(model, ret, tta=tta) if slide else model(ret)
+    #         cls = cls.argmax(dim=1).cpu().numpy()
+    #
+    #         cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)
+    #         mask = cls_gt >= 0
+    #
+    #         y_true = cls_gt[mask].ravel()
+    #         y_pred = cls[mask].ravel()
+    #         metric_op.forward(y_true, y_pred)
+    #
+    #         if cfg.SNAPSHOT_DIR is not None:
+    #             for fname, pred in zip(ret_gt['fname'], cls):
+    #                 viz_op(pred, fname.replace('tif', 'png'))
+    #
+    # metric_op.summary_all()
+    # torch.cuda.empty_cache()
 
-            cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)
-            mask = cls_gt >= 0
-
-            y_true = cls_gt[mask].ravel()
-            y_pred = cls[mask].ravel()
-            metric_op.forward(y_true, y_pred)
-            
-            if cfg.SNAPSHOT_DIR is not None:
-                for fname, pred in zip(ret_gt['fname'], cls):
-                    viz_op(pred, fname.replace('tif', 'png'))
-
-    metric_op.summary_all()
-    torch.cuda.empty_cache()
-
-    eval_dataloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
-    metric_op = er.metric.PixelMetric(len(COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
+    eval_dataloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
+    metric_op = er.metric.PixelMetric(len(eval(cfg.DATASETS).COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
             ret = ret.cuda()

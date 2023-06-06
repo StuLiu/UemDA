@@ -43,15 +43,15 @@ if __name__ == '__main__':
     from module.datasets.loveda import LoveDA
     from module.datasets.isprsda import IsprsDA
 
-    vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.palette, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.palette, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Val/Rural/masks_png', palette=LoveDA.palette, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Val/Urban/masks_png', palette=LoveDA.palette, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Val/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    vis_dir(input_dir='../data/LoveDA/Val/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
 
-    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.palette, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.palette, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.palette, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.palette, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
 
 
 # Generate datasets

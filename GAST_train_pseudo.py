@@ -5,6 +5,8 @@
 @Author  : WangLiu
 @E-mail  : liuwa@hnu.edu.cn
 """
+import logging
+
 import torch.multiprocessing
 
 import argparse
@@ -23,7 +25,6 @@ from torch.nn.utils import clip_grad
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo
 from module.gast.class_balance import ClassBalanceLoss
-
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
@@ -189,9 +190,9 @@ def main():
 
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
-                loss_source = cb_loss_s(loss_source, label_s)               # balance op
+                loss_source = cb_loss_s(loss_source, label_s)  # balance op
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, reduction='none', multi=True)
-                loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)          # balance op
+                loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)  # balance op
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
 
@@ -223,8 +224,8 @@ def main():
             evaluate(model, cfg, True, ckpt_path, logger)
             break
 
+    logger.info('removing pseudo labels>>>>>>>>>>>>')
     shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
-
 
 
 if __name__ == '__main__':

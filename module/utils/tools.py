@@ -32,6 +32,7 @@ def str2bool(v):
 def get_curr_time():
     return f'{time.strftime("%Y%m%d%H%M%S", time.localtime())}'
 
+
 def pad_image(img, target_size):
     """Pad an image up to the target size."""
     rows_missing = target_size[0] - img.shape[2]
@@ -155,7 +156,7 @@ def mixup(s_img, s_lab, t_img, t_lab):
 def import_config(config_name, prefix='configs', copy=True, create=True):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
-    # m.SNAPSHOT_DIR += get_curr_time()
+    m.SNAPSHOT_DIR += get_curr_time()
     if create:
         os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
     if copy:
@@ -314,19 +315,6 @@ def ias_thresh(conf_dict, n_class, alpha, w=None, gamma=1.0):
     return cls_thresh
 
 
-# COLOR_MAP = OrderedDict(
-#     Background=(255, 255, 255),
-#     Building=(255, 0, 0),
-#     Road=(255, 255, 0),
-#     Water=(0, 0, 255),
-#     Barren=(159, 129, 183),
-#     Forest=(0, 255, 0),
-#     Agricultural=(255, 195, 128),
-# )
-#
-# palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
-
-
 def generate_pseudo(model, target_loader, save_dir, n_class=7, pseudo_dict=None, logger=None):
     if pseudo_dict is None:
         pseudo_dict = dict()
@@ -408,11 +396,34 @@ class BestLog:
         self.iter = 0
         self.log_str = ''
 
-    def update(self, val, iter, log_str):
+    def update(self, val, it, log_str):
         cond = (val >= self.value) if self.high else (val <= self.value)
         if cond:
-            self.iter = iter
+            self.iter = it
             self.log_str = log_str
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
 if __name__ == '__main__':

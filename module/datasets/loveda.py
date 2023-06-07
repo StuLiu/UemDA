@@ -11,12 +11,12 @@ import numpy as np
 from module.datasets.basedata import BaseData
 from collections import OrderedDict
 
-
 logger = logging.getLogger(__name__)
 
-class LoveDA(BaseData):
 
+class LoveDA(BaseData):
     LABEL_MAP = OrderedDict(
+        # padding=-1,
         Background=0,
         Building=1,
         Road=2,
@@ -37,8 +37,9 @@ class LoveDA(BaseData):
     )
 
     PALETTE = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
-    SIZE=(1024, 1024)
-    IGNORE_LABEL=-1
+    SIZE = (1024, 1024)
+    IGNORE_LABEL = -1
 
     def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
-        super().__init__(image_dir, mask_dir, transforms, label_type, offset=-1, ignore_label=LoveDA.IGNORE_LABEL)
+        super().__init__(image_dir, mask_dir, transforms, label_type,
+                         offset=-1, ignore_label=self.IGNORE_LABEL, num_class=len(self.LABEL_MAP))

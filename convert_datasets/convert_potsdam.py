@@ -41,6 +41,7 @@ def clip_big_image(image_path, clip_save_dir, args, to_label=False):
     # whose size are all 512x512. Red-Green-Blue-IR
     if to_label:
         image = mmcv.imread(image_path)
+        # image[image == 6] = 0     # remove cluter
     else:
         image = sio.imread(image_path)[:, :, [1, 0, 3]]         # Green-Red-IR
 
@@ -107,8 +108,8 @@ def main():
     args = parse_args()
     splits = {
         'train': [
-            '2_10', '2_11', '2_12', '3_10', '3_11', '3_12', '4_10', '4_11',
-            '4_12', '5_10', '5_11', '5_12', '6_10', '6_11', '6_12', '6_7',
+            '2_10', '2_11', '2_12', '3_10', '3_11', '3_12', '4_10', '4_11', '4_12',
+            '5_10', '5_11', '5_12', '6_10', '6_11', '6_12', '6_7',
             '6_8', '6_9', '7_10', '7_11', '7_12', '7_7', '7_8', '7_9'
         ],
         'val': [
@@ -130,6 +131,7 @@ def main():
     mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'val'))
 
     zipp_list = glob.glob(os.path.join(dataset_path, '*.zip'))
+    zipp_list.sort(reverse=True)
     print('Find the data', zipp_list)
 
     for zipp in zipp_list:
@@ -144,6 +146,9 @@ def main():
             prog_bar = mmcv.ProgressBar(len(src_path_list))
             for i, src_path in enumerate(src_path_list):
                 idx_i, idx_j = osp.basename(src_path).split('_')[2:4]
+                if f'{idx_i}_{idx_j}' in ['6_7', '4_12',]:
+                    print(f'{idx_i}_{idx_j} remove')
+                    continue
                 data_type = 'train' if f'{idx_i}_{idx_j}' in splits[
                     'train'] else 'val'
                 if 'label' in src_path:

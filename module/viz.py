@@ -35,6 +35,9 @@ def vis_dir(input_dir, palette, offset=0):
     img_paths.sort()
     for img_path in tqdm(img_paths):
         pred = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) + offset   # if offset=-1, 0-7 -> -1, 6
+        n = np.sum(pred == -1)
+        if n > 0:
+            print(np.unique(pred), n / float(pred.size), img_path)
         viser(pred, os.path.basename(img_path))
         # break
 
@@ -43,15 +46,15 @@ if __name__ == '__main__':
     from module.datasets.loveda import LoveDA
     from module.datasets.isprsda import IsprsDA
 
-    vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Val/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
-    vis_dir(input_dir='../data/LoveDA/Val/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/LoveDA/Val/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/LoveDA/Val/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)
 
-    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
-    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.PALETTE, offset=-1)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.PALETTE, offset=-1)
+    # vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.PALETTE, offset=-1)
 
 
 # Generate datasets

@@ -3,7 +3,7 @@ from albumentations import *
 import ever as er
 
 DATASETS = 'IsprsDA'
-TARGET_SET = 'Potsdam'
+TARGET_SET = 'Vaihingen'
 
 source_dir = dict(
     image_dir=[

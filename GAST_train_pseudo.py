@@ -186,7 +186,7 @@ def main():
                                                     refine=args.refine_label,
                                                     mode=args.refine_mode,
                                                     temp=args.refine_temp)
-
+                # logger.info(np.unique(label_t_hard.cpu().numpy()))
                 # aligner.update_prototype(feat_s, label_s)
                 aligner.update_prototype(feat_t, label_t_hard)
 

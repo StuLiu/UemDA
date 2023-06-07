@@ -13,7 +13,7 @@ from module.viz import VisualizeSegmm
 from module.datasets import *
 
 
-def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'):
+def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray', ignore_label=-1):
     """
     Convert continuous mask into binary mask
     Args:
@@ -42,7 +42,7 @@ def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray'
     ambiguous = (pseudo_gt.sum(1, keepdim=True) != 1).type_as(mask)
 
     pseudo_gt = pseudo_gt.argmax(dim=1, keepdim=True)
-    pseudo_gt[ambiguous == 1] = -1
+    pseudo_gt[ambiguous == 1] = ignore_label
     if return_type == 'ndarray':
         ret = pseudo_gt.view(bs, h, w).cpu().numpy()
     else:

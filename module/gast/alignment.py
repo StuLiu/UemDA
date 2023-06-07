@@ -153,7 +153,8 @@ class Aligner:
 
             label_t_soft = weight * label_t_soft
             label_t_soft = self._logits_norm(label_t_soft)
-        label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor')
+        label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor',
+                                        ignore_label=self.ignore_label)
         return label_t_hard  # (b, h, w)
 
     @staticmethod

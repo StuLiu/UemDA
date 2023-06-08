@@ -72,7 +72,7 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
     if not os.path.exists(save_pseudo_color_path):
         os.makedirs(save_pseudo_color_path)
     viz_op = VisualizeSegmm(save_pseudo_color_path, eval(_cfg.DATASETS).PALETTE)
-
+    num_classes = len(eval(_cfg.DATASETS).LABEL_MAP)
     with torch.no_grad():
         _i = 0
         for ret, ret_gt in tqdm(pseudo_loader):
@@ -82,7 +82,7 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
 
             ret = ret.cuda()
 
-            cls = pre_slide(model, ret, tta=True) if slide else model(ret)  # (b, c, h, w)
+            cls = pre_slide(model, ret, num_classes=num_classes, tta=True) if slide else model(ret)  # (b, c, h, w)
 
             if save_prob:
                 # np.save(save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.npy',

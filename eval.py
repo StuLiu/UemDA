@@ -20,6 +20,7 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
         model.load_state_dict(model_state_dict,  strict=True)
         logger.info('[Load params] from {}'.format(ckpt_path))
         count_model_parameters(model, logger)
+    num_class = len(eval(cfg.DATASETS).LABEL_MAP)
     model.eval()
     # print(cfg.EVAL_DATA_CONFIG)
     # eval_dataloader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
@@ -49,7 +50,7 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
             ret = ret.cuda()
-            cls = pre_slide(model, ret, tta=tta) if slide else model(ret)
+            cls = pre_slide(model, ret, num_classes=num_class, tta=tta) if slide else model(ret)
             cls = cls.argmax(dim=1).cpu().numpy()
 
             cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)

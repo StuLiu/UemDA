@@ -42,7 +42,9 @@ parser.add_argument('--refine-mode', type=str, default='all', help='whether refi
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label or not')
 
 parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
-parser.add_argument('--balance-temp', type=float, default=0.5, help='whether refine the pseudo label or not')
+parser.add_argument('--balance-temp', type=float, default=0.5, help='whether balance class or not')
+
+parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
 args = parser.parse_args()
 
 # get config from config.py
@@ -60,6 +62,9 @@ def main():
     logger.info(args)
     logger.info(cfg)
 
+    ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
+    class_num = len(eval(cfg.DATASETS).LABEL_MAP)
+
     cudnn.enabled = True
     model = Deeplabv2(dict(
         backbone=dict(
@@ -71,16 +76,14 @@ def main():
         cascade=False,
         use_ppm=True,
         ppm=dict(
-            num_classes=7,
+            num_classes=class_num,
             use_aux=False,
             fc_dim=2048,
         ),
         inchannels=2048,
-        num_classes=7,
+        num_classes=class_num,
         is_ins_norm=True,
     )).cuda()
-    ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
-    class_num = len(eval(cfg.DATASETS).LABEL_MAP)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
     cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
@@ -227,8 +230,12 @@ def main():
             evaluate(model, cfg, True, ckpt_path, logger)
             break
 
-    logger.info('removing pseudo labels>>>>>>>>>>>>')
-    shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
+    if args.rm_pseudo:
+        logger.info('removing pseudo labels begin >>>>>>>>>>>>')
+        shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
+        logger.info('removing pseudo labels end <<<<<<<<<<<<<<')
+
+    logger.info(f'>>>> Usning {float(time.clock() - time_from) / 60:.3f} hours.')
 
 
 if __name__ == '__main__':

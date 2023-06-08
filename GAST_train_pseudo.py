@@ -53,6 +53,7 @@ assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no lar
 
 
 def main():
+    time_from = time.time()
     save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, 'pseudo_label')  # in 'save_path'. Save labelIDs, not trainIDs.
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(save_pseudo_label_path, exist_ok=True)
@@ -235,7 +236,7 @@ def main():
         shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
         logger.info('removing pseudo labels end <<<<<<<<<<<<<<')
 
-    logger.info(f'>>>> Usning {float(time.clock() - time_from) / 60:.3f} hours.')
+    logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
 
 
 if __name__ == '__main__':

@@ -17,23 +17,23 @@ logger = logging.getLogger(__name__)
 class LoveDA(BaseData):
     LABEL_MAP = OrderedDict(
         # padding=-1,
-        Background=0,
+        Backgd=0,
         Building=1,
         Road=2,
         Water=3,
         Barren=4,
         Forest=5,
-        Agricultural=6
+        Agricult=6
     )
 
     COLOR_MAP = OrderedDict(
-        Background=(255, 255, 255),
+        Backgd=(255, 255, 255),
         Building=(255, 0, 0),
         Road=(255, 255, 0),
         Water=(0, 0, 255),
         Barren=(159, 129, 183),
         Forest=(0, 255, 0),
-        Agricultural=(255, 195, 128),
+        Agricult=(255, 195, 128),
     )
 
     PALETTE = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()

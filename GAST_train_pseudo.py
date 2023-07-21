@@ -44,7 +44,7 @@ parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refi
 parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
 parser.add_argument('--balance-temp', type=float, default=0.5, help='whether balance class or not')
 
-parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
+parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
 args = parser.parse_args()
 
 # get config from config.py

@@ -17,21 +17,21 @@ logger = logging.getLogger(__name__)
 class IsprsDA(BaseData):
     LABEL_MAP = OrderedDict(
         # Background=-1,
-        impervious_surface=0,
+        imp_surf=0,
         building=1,
-        low_vegetation=2,
+        low_vege=2,
         tree=3,
         car=4,
-        clutter=5
+        # clutter=5
     )
     COLOR_MAP = OrderedDict(
         # Background=[0, 0, 0],
-        impervious_surface=[255, 255, 255],
+        imp_surf=[255, 255, 255],
         building=[0, 0, 255],
-        low_vegetation=[0, 255, 255],
+        low_vege=[0, 255, 255],
         tree=[0, 255, 0],
         car=[255, 255, 0],
-        clutter=[255, 0, 0]
+        # clutter=[255, 0, 0]
     )
     PALETTE = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
     SIZE = (512, 512)

@@ -2,36 +2,36 @@ from albumentations import HorizontalFlip, VerticalFlip, RandomRotate90, Normali
 from albumentations import *
 import ever as er
 
-
+DATASETS = 'LoveDA'
 TARGET_SET = 'RURAL'
 
 source_dir = dict(
     image_dir=[
-        './LoveDA/Train/Urban/images_png/',
+        'data/LoveDA/Train/Urban/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Train/Urban/masks_png/',
+        'data/LoveDA/Train/Urban/masks_png/',
     ],
 )
 target_dir = dict(
     image_dir=[
-        './LoveDA/Val/Rural/images_png/',
+        'data/LoveDA/Val/Rural/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Val/Rural/masks_png/',
+        'data/LoveDA/Val/Rural/masks_png/',
     ],
 )
 val_dir = dict(
     image_dir=[
-        './LoveDA/Train/Rural/images_png/',
+        'data/LoveDA/Train/Rural/images_png/',
     ],
     mask_dir=[
-        './LoveDA/Train/Rural/masks_png/',
+        'data/LoveDA/Train/Rural/masks_png/',
     ],
 )
 test_dir = dict(
     image_dir=[
-        './LoveDA/Test/Rural/images_png/'
+        'data/LoveDA/Test/Rural/images_png/'
     ],
     mask_dir=[
         None,

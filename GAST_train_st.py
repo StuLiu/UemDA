@@ -28,6 +28,8 @@ from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo
 from module.gast.class_balance import ClassBalanceLoss
 from module.gast.pseudo_generation import pseudo_selection
+import module.aug.augmentation as mag
+
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
@@ -106,6 +108,7 @@ def main():
         num_classes=class_num,
         is_ins_norm=True,
     )).cuda()
+    model_teacher.eval()
     ema = ExponentialMovingAverage(decay=0.996)
     ema.register(model_teacher)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
@@ -147,29 +150,29 @@ def main():
             # print(label_s.unique())
             aligner.update_prototype(feat_s, label_s)
 
-            # target infer
-            batch = targetloader_iter.next()
-            images_t, _ = batch[0]
-            images_t = images_t.cuda()
-            _, _, feat_t = model(images_t)
-
-            # Loss: source segmentation + global alignment
+            # # target infer
+            # batch = targetloader_iter.next()
+            # images_t, _ = batch[0]
+            # images_t = images_t.cuda()
+            # _, _, feat_t = model(images_t)
+            #
+            # # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
             loss_seg = cb_loss_s(loss_seg, label_s)
-
-            loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss = loss_seg + lmd_1 * loss_domain
+            #
+            # loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
+            loss = loss_seg #+ lmd_1 * loss_domain
 
             optimizer.zero_grad()
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
-            log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
-                       f'loss_domain={loss_domain:.3e}, ' \
-                       f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
+            # log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+            #            f'loss_domain={loss_domain:.3e}, ' \
+            #            f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
+            log_loss=0
             ema.update(model)
-            ema.apply(model_teacher)
         else:
             log_loss = ''
             lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
@@ -188,15 +191,15 @@ def main():
                 images_t, _ = batch_t[0]
                 images_t = images_t.cuda()
 
+                # teacher teaching
+                # pred_t1_teacher, pred_t2_teacher, _ = model_teacher(images_t)
+                label_t_soft_whole = pre_slide(model_teacher, images_t, num_classes=class_num, tta=False)
                 # model forward
                 # source
                 pred_s1, pred_s2, feat_s = model(images_s)
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                pred_t1_teacher, pred_t2_teacher, _ = model_teacher(images_t)
-                _x1 = F.interpolate(pred_t1_teacher, label_s.shape[-2:], mode='bilinear', align_corners=True)
-                _x2 = F.interpolate(pred_t2_teacher, label_s.shape[-2:], mode='bilinear', align_corners=True)
                 label_t_soft = (_x1.softmax(dim=1) + _x2.softmax(dim=1)) / 2
                 label_t_hard = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft.detach(),
                                                     refine=args.refine_label,
@@ -222,7 +225,10 @@ def main():
                            f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
                 ema.update(model)
-                ema.apply(model_teacher)
+
+        if (i_iter + 1) % cfg.GENERATE_PSEDO_EVERY == 0:
+            ema.apply(model_teacher)
+            model_teacher.eval()
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:

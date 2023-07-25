@@ -112,7 +112,7 @@ class Pad(object):
 
 class ToTensor(object):
     def __call__(self, image, target):
-        image = F.to_tensor(image)
+        image = torch.as_tensor(image, dtype=torch.float32)
         if target is not None:
             target = torch.as_tensor(np.array(target), dtype=torch.int64)
         return image, target

@@ -49,8 +49,8 @@ def pre_slide(model, image, num_classes=7, tile_size=(512, 512), tta=False):
     tile_rows = int(ceil((image_size[2] - tile_size[0]) / stride) + 1)  # 行滑动步数:(1024-512)/256 + 1 = 3
     tile_cols = int(ceil((image_size[3] - tile_size[1]) / stride) + 1)  # 列滑动步数:(1024-512)/256 + 1 = 3
 
-    full_probs = torch.zeros((1, num_classes, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 (1,7,1024,1024)
-    count_predictions = torch.zeros((1, 1, image_size[2], image_size[3])).cuda()  # 初始化计数矩阵 (1,1,1024,1024)
+    full_probs = torch.zeros((image_size[0], num_classes, image_size[2], image_size[3])).cuda()  # 初始化全概率矩阵 (1,7,1024,1024)
+    count_predictions = torch.zeros((image_size[0], 1, image_size[2], image_size[3])).cuda()  # 初始化计数矩阵 (1,1,1024,1024)
 
     for row in range(tile_rows):  # row = 0,1,2
         for col in range(tile_cols):  # col = 0,1,2

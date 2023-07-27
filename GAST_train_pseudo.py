@@ -25,6 +25,8 @@ from torch.nn.utils import clip_grad
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo
 from module.gast.class_balance import ClassBalanceLoss
+from module.utils.ema import ExponentialMovingAverage
+
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
@@ -85,6 +87,27 @@ def main():
         num_classes=class_num,
         is_ins_norm=True,
     )).cuda()
+    model_teacher = Deeplabv2(dict(
+        backbone=dict(
+            resnet_type='resnet50',
+            output_stride=16,
+            pretrained=True,
+        ),
+        multi_layer=True,
+        cascade=False,
+        use_ppm=True,
+        ppm=dict(
+            num_classes=class_num,
+            use_aux=False,
+            fc_dim=2048,
+        ),
+        inchannels=2048,
+        num_classes=class_num,
+        is_ins_norm=True,
+    )).cuda()
+    model_teacher.eval()
+    ema = ExponentialMovingAverage(decay=0.99)
+    ema.register(model_teacher)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
     cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
@@ -156,8 +179,9 @@ def main():
             # Generate pseudo label
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
+                ema.apply(model_teacher)
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
+                gener_target_pseudo(cfg, model_teacher, pseudo_loader, save_pseudo_label_path,
                                     size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
@@ -212,6 +236,7 @@ def main():
                            f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
+        ema.update(model)
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))

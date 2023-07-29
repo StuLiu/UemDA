@@ -38,11 +38,11 @@ class ClassBalanceLoss(nn.Module):
         # loss weight computed by class frequency
         class_prob = self._get_class_wight()                 # (c,)
         weight_1 = (label_onehot * class_prob.unsqueeze(dim=0)).sum(dim=1)     # (b*h*w,)
-        # loss weight computed by difficulty
-        weight_2 = self._get_pixel_difficulty(ce_loss, label_onehot)           # (b*h*w,)
-        # merged weight
-        weight = ((weight_1 + weight_2) * 0.5).view(b, h, w).detach()          # (b, h, w)
-
+        # # loss weight computed by difficulty
+        # weight_2 = self._get_pixel_difficulty(ce_loss, label_onehot)           # (b*h*w,)
+        # # merged weight
+        # weight = ((weight_1 + weight_2) * 0.5).view(b, h, w).detach()          # (b, h, w)
+        weight = weight_1.view(b, h, w).detach()
         # balanced loss
         loss_balanced = torch.mean(weight * ce_loss)
         return loss_balanced

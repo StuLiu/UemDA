@@ -15,19 +15,19 @@ SNAPSHOT_DIR = './log/GAST/2vaihingen'
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
-NUM_STEPS = 7500  # for learning rate poly
-NUM_STEPS_STOP = 5000  # Use damping instead of early stopping
-FIRST_STAGE_STEP = 5000  # for first stage
+NUM_STEPS = 15000  # for learning rate poly
+NUM_STEPS_STOP = 10000  # Use damping instead of early stopping
+FIRST_STAGE_STEP = 4000  # for first stage
 PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9  # lr poly power
 EVAL_FROM = 0#int(NUM_STEPS_STOP * 0.6) - 1
-EVAL_EVERY = 500
-GENERATE_PSEDO_EVERY = 500
+EVAL_EVERY = 1000
+GENERATE_PSEDO_EVERY = 1000
 MULTI_LAYER = True
 IGNORE_BG = True
 PSEUDO_SELECT = True
 CUTOFF_TOP = 0.8
-CUTOFF_LOW = 0.8
+CUTOFF_LOW = 0.6
 
 TARGET_SET = TARGET_SET
 SOURCE_DATA_CONFIG = SOURCE_DATA_CONFIG

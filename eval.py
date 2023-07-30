@@ -22,13 +22,14 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
         count_model_parameters(model, logger)
     num_class = len(eval(cfg.DATASETS).LABEL_MAP)
     model.eval()
+    # # eval in target train datasets
     # print(cfg.EVAL_DATA_CONFIG)
     # eval_dataloader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
     # metric_op = er.metric.PixelMetric(len(eval(cfg.DATASETS).COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
     # with torch.no_grad():
     #     for ret, ret_gt in tqdm(eval_dataloader):
     #         ret = ret.cuda()
-    #         cls = pre_slide(model, ret, tta=tta) if slide else model(ret)
+    #         cls = pre_slide(model, ret, num_classes=num_class, tta=tta) if slide else model(ret)
     #         cls = cls.argmax(dim=1).cpu().numpy()
     #
     #         cls_gt = ret_gt['cls'].cpu().numpy().astype(np.int32)
@@ -38,10 +39,9 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     #         y_pred = cls[mask].ravel()
     #         metric_op.forward(y_true, y_pred)
     #
-    #         if cfg.SNAPSHOT_DIR is not None:
-    #             for fname, pred in zip(ret_gt['fname'], cls):
-    #                 viz_op(pred, fname.replace('tif', 'png'))
-    #
+    #         # if cfg.SNAPSHOT_DIR is not None:
+    #         #     for fname, pred in zip(ret_gt['fname'], cls):
+    #         #         viz_op(pred, fname.replace('tif', 'png'))
     # metric_op.summary_all()
     # torch.cuda.empty_cache()
 

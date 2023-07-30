@@ -32,8 +32,8 @@ from module.gast.domain_balance import examples_cnt, get_target_weight
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 # arg parser
-# GAST_train_pseudo.py --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 0.5
-# GAST_train_pseudo.py --config-path st.gast.2rural --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 1000
+# --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 0.5
+# --config-path st.gast.2rural --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 1000
 
 parser = argparse.ArgumentParser(description='Run GAST methods.')
 parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='config path')
@@ -90,27 +90,27 @@ def main():
         num_classes=class_num,
         is_ins_norm=True,
     )).cuda()
-    model_teacher = Deeplabv2(dict(
-        backbone=dict(
-            resnet_type='resnet50',
-            output_stride=16,
-            pretrained=True,
-        ),
-        multi_layer=True,
-        cascade=False,
-        use_ppm=True,
-        ppm=dict(
-            num_classes=class_num,
-            use_aux=False,
-            fc_dim=2048,
-        ),
-        inchannels=2048,
-        num_classes=class_num,
-        is_ins_norm=True,
-    )).cuda()
-    model_teacher.eval()
-    ema = ExponentialMovingAverage(decay=0.99)
-    ema.register(model_teacher)
+    # model_teacher = Deeplabv2(dict(
+    #     backbone=dict(
+    #         resnet_type='resnet50',
+    #         output_stride=16,
+    #         pretrained=True,
+    #     ),
+    #     multi_layer=True,
+    #     cascade=False,
+    #     use_ppm=True,
+    #     ppm=dict(
+    #         num_classes=class_num,
+    #         use_aux=False,
+    #         fc_dim=2048,
+    #     ),
+    #     inchannels=2048,
+    #     num_classes=class_num,
+    #     is_ins_norm=True,
+    # )).cuda()
+    # model_teacher.eval()
+    ema = ExponentialMovingAverage(model=model, decay=0.99)
+    # ema.register(model_teacher)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
     cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
@@ -184,15 +184,16 @@ def main():
             # Second Stage
             if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
-
+                ema.register()
             # Generate pseudo label
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
-                ema.apply(model_teacher)
+                ema.apply_shadow()
                 # save pseudo label for target domain
-                cnt_t, ratio_t = gener_target_pseudo(cfg, model_teacher, pseudo_loader, save_pseudo_label_path,
+                cnt_t, ratio_t = gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
                                                      size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
                                                      ignore_label=cfg.IGNORE_LABEL)
+                ema.restore()
                 logger.info(f'target domain valid examples cnt={cnt_t}, ratio={ratio_t}')
                 if args.balance_domain:
                     balance_domain_weight = get_target_weight(cnt_s, ratio_s, cnt_t, ratio_t)
@@ -252,7 +253,8 @@ def main():
                            f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
-        ema.update(model)
+                ema.update()
+
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))

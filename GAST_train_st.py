@@ -13,10 +13,8 @@ import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import torch.nn.functional as F
 from eval import evaluate
 from module.utils.tools import *
-from module.utils.ema import ExponentialMovingAverage
 from module.models.Encoder import Deeplabv2
 from module.datasets.daLoader import DALoader
 from module.datasets import LoveDA, IsprsDA
@@ -25,31 +23,33 @@ from tqdm import tqdm
 from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
-from module.gast.pseudo_generation import gener_target_pseudo
+from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
 from module.gast.class_balance import ClassBalanceLoss
-from module.gast.pseudo_generation import pseudo_selection
-import module.aug.augmentation as mag
+from module.utils.ema import ExponentialMovingAverage
+from module.gast.domain_balance import examples_cnt, get_target_weight
 
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 # arg parser
-# GAST_train_pseudo.py --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 0.5
-# GAST_train_pseudo.py --config-path st.gast.2rural --refine-label 1 --refine-mode all --refine-temp 2.0 --balance-class 1 --balance-temp 1000
+# --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 0.5
+# --config-path st.gast.2rural --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 1000
 
 parser = argparse.ArgumentParser(description='Run GAST methods.')
-parser.add_argument('--config-path', type=str, default='st.gast.2urban', help='config path')
+parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='config path')
 
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 
-parser.add_argument('--refine-label', type=str2bool, default=0, help='whether refine the pseudo label or not')
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label or not')
 parser.add_argument('--refine-mode', type=str, default='all', help='whether refine the pseudo label or not')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label or not')
 
 parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
 parser.add_argument('--balance-temp', type=float, default=0.5, help='whether balance class or not')
 
-parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
+parser.add_argument('--balance-domain', type=str2bool, default=0, help='whether balance domain examples or not')
+
+parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
 args = parser.parse_args()
 
 # get config from config.py
@@ -109,7 +109,7 @@ def main():
         is_ins_norm=True,
     )).cuda()
     model_teacher.eval()
-    ema = ExponentialMovingAverage(decay=0.996)
+    ema = ExponentialMovingAverage(decay=0.99)
     ema.register(model_teacher)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
@@ -121,10 +121,16 @@ def main():
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     sourceloader_iter = Iterator(sourceloader)
 
+    cnt_s, ratio_s = examples_cnt(sourceloader, ignore_label=cfg.IGNORE_LABEL, save_prob=False)
+    logger.info(f'source domain valid examples cnt={cnt_s}, ratio={ratio_s}')
+
+    # pseudo loader (target)
+    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
+
     # target loader
     targetloader = DALoader(cfg.TARGET_DATA_CONFIG, cfg.DATASETS)
     targetloader_iter = Iterator(targetloader)
-    logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}')
+    logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}, pseudo={len(pseudo_loader)}')
     # print(len(targetloader))
     epochs = cfg.NUM_STEPS_STOP / len(sourceloader)
     logger.info('epochs ~= %.3f' % epochs)
@@ -132,6 +138,7 @@ def main():
     optimizer = optim.SGD(model.parameters(),
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
 
+    balance_domain_weight = 1.0
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
 
         lmd_1 = portion_warmup(i_iter=i_iter, start_iter=0, end_iter=cfg.NUM_STEPS_STOP)
@@ -150,35 +157,56 @@ def main():
             # print(label_s.unique())
             aligner.update_prototype(feat_s, label_s)
 
-            # # target infer
-            # batch = targetloader_iter.next()
-            # images_t, _ = batch[0]
-            # images_t = images_t.cuda()
-            # _, _, feat_t = model(images_t)
-            #
-            # # Loss: source segmentation + global alignment
+            # target infer
+            batch = targetloader_iter.next()
+            images_t, _ = batch[0]
+            images_t = images_t.cuda()
+            _, _, feat_t = model(images_t)
+
+            # Loss: source segmentation + global alignment
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
             loss_seg = cb_loss_s(loss_seg, label_s)
-            #
-            # loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss = loss_seg #+ lmd_1 * loss_domain
+
+            loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
+            loss = loss_seg + lmd_1 * loss_domain
 
             optimizer.zero_grad()
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                       max_norm=35, norm_type=2)
             optimizer.step()
-            # log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
-            #            f'loss_domain={loss_domain:.3e}, ' \
-            #            f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
-            log_loss=0
-            ema.update(model)
+            log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+                       f'loss_domain={loss_domain:.3e}, ' \
+                       f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
         else:
             log_loss = ''
             lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
             # Second Stage
             if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
+
+            # Generate pseudo label
+            if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
+                logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
+                ema.apply(model_teacher)
+                # save pseudo label for target domain
+                cnt_t, ratio_t = gener_target_pseudo(cfg, model_teacher, pseudo_loader, save_pseudo_label_path,
+                                                     size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
+                                                     ignore_label=cfg.IGNORE_LABEL)
+                logger.info(f'target domain valid examples cnt={cnt_t}, ratio={ratio_t}')
+                if args.balance_domain:
+                    balance_domain_weight = get_target_weight(cnt_s, ratio_s, cnt_t, ratio_t)
+                logger.info(f'balance_domain_weight={balance_domain_weight}')
+
+                # save finish
+                target_config = cfg.TARGET_DATA_CONFIG
+                target_config['mask_dir'] = [save_pseudo_label_path]
+                logger.info(target_config)
+                targetloader = DALoader(target_config, cfg.DATASETS)
+                targetloader_iter = Iterator(targetloader)
+                logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
+            torch.cuda.synchronize()
+
             # Train with source and target domain
             if i_iter < cfg.NUM_STEPS_STOP:
                 model.train()
@@ -188,24 +216,23 @@ def main():
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
-                images_t, _ = batch_t[0]
-                images_t = images_t.cuda()
+                images_t, label_t_soft = batch_t[0]
+                images_t, label_t_soft = images_t.cuda(), label_t_soft['cls'].cuda()
 
-                # teacher teaching
-                # pred_t1_teacher, pred_t2_teacher, _ = model_teacher(images_t)
-                label_t_soft_whole = pre_slide(model_teacher, images_t, num_classes=class_num, tta=False)
                 # model forward
                 # source
                 pred_s1, pred_s2, feat_s = model(images_s)
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                label_t_soft = (_x1.softmax(dim=1) + _x2.softmax(dim=1)) / 2
-                label_t_hard = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft.detach(),
+                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft,
                                                     refine=args.refine_label,
                                                     mode=args.refine_mode,
                                                     temp=args.refine_temp)
-
+                label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
+                                                return_type='tensor', ignore_label=cfg.IGNORE_LABEL)
+                # logger.info(np.unique(label_t_hard.cpu().numpy()))
+                # aligner.update_prototype(feat_s, label_s)
                 aligner.update_prototype(feat_t, label_t_hard)
 
                 # loss
@@ -214,7 +241,7 @@ def main():
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, reduction='none', multi=True)
                 loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)  # balance op
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
+                loss = loss_source + lmd_2 * balance_domain_weight * loss_pseudo + lmd_1 * loss_domain
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -224,12 +251,8 @@ def main():
                 log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
                            f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
-                ema.update(model)
 
-        if (i_iter + 1) % cfg.GENERATE_PSEDO_EVERY == 0:
-            ema.apply(model_teacher)
-            model_teacher.eval()
-
+        ema.update(model)
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))

@@ -121,7 +121,7 @@ def main():
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     sourceloader_iter = Iterator(sourceloader)
 
-    cnt_s, ratio_s = examples_cnt(sourceloader, ignore_label=cfg.IGNORE_LABEL, save_prob=False)
+    cnt_s, ratio_s = examples_cnt(sourceloader, ignore_label=ignore_label, save_prob=False)
     logger.info(f'source domain valid examples cnt={cnt_s}, ratio={ratio_s}')
 
     # pseudo loader (target)
@@ -192,7 +192,7 @@ def main():
                 # save pseudo label for target domain
                 cnt_t, ratio_t = gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
                                                      size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
-                                                     ignore_label=cfg.IGNORE_LABEL)
+                                                     ignore_label=ignore_label)
                 ema.restore()
                 logger.info(f'target domain valid examples cnt={cnt_t}, ratio={ratio_t}')
                 if args.balance_domain:
@@ -231,7 +231,7 @@ def main():
                                                     mode=args.refine_mode,
                                                     temp=args.refine_temp)
                 label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
-                                                return_type='tensor', ignore_label=cfg.IGNORE_LABEL)
+                                                return_type='tensor', ignore_label=ignore_label)
                 # logger.info(np.unique(label_t_hard.cpu().numpy()))
                 # aligner.update_prototype(feat_s, label_s)
                 aligner.update_prototype(feat_t, label_t_hard)
@@ -266,12 +266,20 @@ def main():
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
+            if i_iter + 1 > cfg.FIRST_STAGE_STEP:
+                ema.apply_shadow()
+                evaluate(model, cfg, True, ckpt_path, logger)
+                ema.restore()
             model.train()
         elif (i_iter + 1) >= cfg.NUM_STEPS_STOP:
             print('save model ...')
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
+
+            ema.apply_shadow()
+            evaluate(model, cfg, True, ckpt_path, logger)
+            ema.restore()
             break
 
     if args.rm_pseudo:

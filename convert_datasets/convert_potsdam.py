@@ -88,7 +88,7 @@ def clip_big_image(image_path, clip_save_dir, args, to_label=False):
                                   np.array([2, 3, 4]).reshape(3, 1))
             out[flatten_v == value_idx] = idx
         image = out.reshape(h, w)
-        image[image == 6] = 0       # ignore clutter
+        image[image == 6] = 0       # merge background and clutter
 
     for box in boxes:
         start_x, start_y, end_x, end_y = box

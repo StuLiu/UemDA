@@ -21,7 +21,7 @@ class IsprsDA(BaseData):
         building=2,
         low_vege=3,
         tree=4,
-        car=6,
+        car=5,
         # clutter=5
     )
     COLOR_MAP = OrderedDict(

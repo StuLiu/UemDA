@@ -55,16 +55,16 @@ class ClassBalanceLoss(nn.Module):
     def _get_class_wight(self):
         prob = (1.0 - self.freq) / self.temperature
         prob = torch.softmax(prob, dim=0)
-        # _max, _ = torch.max(prob, dim=0, keepdim=True)
-        _max = torch.mean(prob, dim=0, keepdim=True)
+        _max, _ = torch.max(prob, dim=0, keepdim=True)
+        # _max = torch.mean(prob, dim=0, keepdim=True)
         prob_normed = prob / (_max + self.eps)      # 0 ~ 1
         return prob_normed
 
     def _get_pixel_difficulty(self, ce_loss, label_onehot):
         ce_loss = ce_loss.view(-1, 1)               # (b*h*w, 1)
         ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
-        # _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
-        _max = torch.mean(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
+        _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
+        # _max = torch.mean(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
         pixel_difficulty = ce_loss_classwise / (_max + self.eps)    # (b*h*w, c)
         pixel_difficulty = pixel_difficulty.sum(dim=1)      # (b*h*w,)
         return pixel_difficulty

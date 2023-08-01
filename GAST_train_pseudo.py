@@ -90,27 +90,7 @@ def main():
         num_classes=class_num,
         is_ins_norm=True,
     )).cuda()
-    # model_teacher = Deeplabv2(dict(
-    #     backbone=dict(
-    #         resnet_type='resnet50',
-    #         output_stride=16,
-    #         pretrained=True,
-    #     ),
-    #     multi_layer=True,
-    #     cascade=False,
-    #     use_ppm=True,
-    #     ppm=dict(
-    #         num_classes=class_num,
-    #         use_aux=False,
-    #         fc_dim=2048,
-    #     ),
-    #     inchannels=2048,
-    #     num_classes=class_num,
-    #     is_ins_norm=True,
-    # )).cuda()
-    # model_teacher.eval()
-    ema = ExponentialMovingAverage(model=model, decay=0.99)
-    # ema.register(model_teacher)
+    ema_model = ExponentialMovingAverage(model=model, decay=0.99)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
     cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
@@ -184,16 +164,16 @@ def main():
             # Second Stage
             if i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
-                ema.register()
+                ema_model.register()
             # Generate pseudo label
             if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
-                ema.apply_shadow()
+                ema_model.apply_shadow()
                 # save pseudo label for target domain
                 cnt_t, ratio_t = gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
                                                      size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
                                                      ignore_label=ignore_label)
-                ema.restore()
+                ema_model.restore()
                 logger.info(f'target domain valid examples cnt={cnt_t}, ratio={ratio_t}')
                 if args.balance_domain:
                     balance_domain_weight = get_target_weight(cnt_s, ratio_s, cnt_t, ratio_t)
@@ -253,7 +233,7 @@ def main():
                            f' domain={loss_domain:.3e},' \
                            f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
 
-                ema.update()
+                ema_model.update()
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
@@ -267,9 +247,9 @@ def main():
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
             if i_iter + 1 > cfg.FIRST_STAGE_STEP:
-                ema.apply_shadow()
+                ema_model.apply_shadow()
                 evaluate(model, cfg, True, ckpt_path, logger)
-                ema.restore()
+                ema_model.restore()
             model.train()
         elif (i_iter + 1) >= cfg.NUM_STEPS_STOP:
             print('save model ...')
@@ -277,9 +257,9 @@ def main():
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
 
-            ema.apply_shadow()
+            ema_model.apply_shadow()
             evaluate(model, cfg, True, ckpt_path, logger)
-            ema.restore()
+            ema_model.restore()
             break
 
     if args.rm_pseudo:

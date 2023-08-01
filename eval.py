@@ -6,12 +6,16 @@ from ever.util.param_util import count_model_parameters
 from module.viz import VisualizeSegmm
 from argparse import ArgumentParser
 from module.datasets import *
+from module.gast.metrics import PixelMetricIgnore
 
 
 def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, tta=False):
     #torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
     #torch.backends.cudnn.enabled = False
+    ignore_labels = []
+    if cfg.DATASETS == 'IsprsDA':
+        ignore_labels = [0]
     if cfg.SNAPSHOT_DIR is not None:
         vis_dir = os.path.join(cfg.SNAPSHOT_DIR, 'vis-{}'.format(os.path.basename(ckpt_path)))
         viz_op = VisualizeSegmm(vis_dir, eval(cfg.DATASETS).PALETTE)
@@ -46,7 +50,10 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     # torch.cuda.empty_cache()
 
     eval_dataloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
-    metric_op = er.metric.PixelMetric(len(eval(cfg.DATASETS).COLOR_MAP.keys()), logdir=cfg.SNAPSHOT_DIR, logger=logger)
+    class_names = eval(cfg.DATASETS).COLOR_MAP.keys()
+    metric_op = PixelMetricIgnore(len(class_names), class_names=list(class_names),
+                                  logdir=cfg.SNAPSHOT_DIR, logger=logger,
+                                  ignore_labels=ignore_labels)
     with torch.no_grad():
         for ret, ret_gt in tqdm(eval_dataloader):
             ret = ret.cuda()

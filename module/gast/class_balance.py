@@ -14,7 +14,7 @@ import torch.nn.functional as tnf
 class ClassBalanceLoss(nn.Module):
 
     def __init__(self, class_num=7, ignore_label=-1, decay=0.998, min_prob=0.01, temperature=0.5,
-                 is_balance=True):
+                 is_balance=True, hard=True):
         super().__init__()
         assert temperature > 0
         self.class_num = class_num
@@ -23,6 +23,7 @@ class ClassBalanceLoss(nn.Module):
         self.min_prob = torch.FloatTensor([min_prob]).cuda()[0]
         self.temperature = temperature
         self.is_balance = is_balance
+        self.is_hard = hard
         self.eps = 1e-7
         self.freq = torch.ones([class_num]).float().cuda() / class_num
 
@@ -37,11 +38,12 @@ class ClassBalanceLoss(nn.Module):
         label_onehot = self._one_hot(label)                 # (b*h*w, c)
         # loss weight computed by class frequency
         class_prob = self._get_class_wight()                 # (c,)
-        weight_1 = (label_onehot * class_prob.unsqueeze(dim=0)).sum(dim=1)     # (b*h*w,)
+        weight = (label_onehot * class_prob.unsqueeze(dim=0)).sum(dim=1)     # (b*h*w,)
         # loss weight computed by difficulty
-        weight_2 = self._get_pixel_difficulty(ce_loss, label_onehot)           # (b*h*w,)
-        # merged weight
-        weight = ((weight_1 + weight_2) * 0.5).view(b, h, w).detach()          # (b, h, w)
+        if self.is_hard:
+            weight_hard = self._get_pixel_difficulty(ce_loss, label_onehot)       # (b*h*w,)
+            # merged weight
+            weight = ((weight + weight_hard) * 0.5).view(b, h, w).detach()          # (b, h, w)
         # weight = weight_1.view(b, h, w).detach()
         # balanced loss
         loss_balanced = torch.mean(weight * ce_loss)
@@ -53,16 +55,16 @@ class ClassBalanceLoss(nn.Module):
     def _get_class_wight(self):
         prob = (1.0 - self.freq) / self.temperature
         prob = torch.softmax(prob, dim=0)
-        _max, _ = torch.max(prob, dim=0, keepdim=True)
-        # _max = torch.mean(prob, dim=0, keepdim=True)
+        # _max, _ = torch.max(prob, dim=0, keepdim=True)
+        _max = torch.mean(prob, dim=0, keepdim=True)
         prob_normed = prob / (_max + self.eps)      # 0 ~ 1
         return prob_normed
 
     def _get_pixel_difficulty(self, ce_loss, label_onehot):
         ce_loss = ce_loss.view(-1, 1)               # (b*h*w, 1)
         ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
-        _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
-        # _max = torch.mean(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
+        # _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
+        _max = torch.mean(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
         pixel_difficulty = ce_loss_classwise / (_max + self.eps)    # (b*h*w, c)
         pixel_difficulty = pixel_difficulty.sum(dim=1)      # (b*h*w,)
         return pixel_difficulty

@@ -35,7 +35,7 @@ class IsprsDA(BaseData):
     )
     PALETTE = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
     SIZE = (512, 512)
-    IGNORE_LABEL = -1
+    IGNORE_LABEL = 0
 
     def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
         super().__init__(image_dir, mask_dir, transforms, label_type=label_type,

@@ -19,6 +19,7 @@ FIRST_STAGE_STEP = 10000  # for first stage
 PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9  # lr poly power
 EVAL_EVERY = 1000
+EVAL_FROM = 0
 GENERATE_PSEDO_EVERY = 1000
 MULTI_LAYER = False
 IGNORE_BG = True

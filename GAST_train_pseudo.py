@@ -24,7 +24,7 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.class_balance import ClassBalanceLoss
+from module.gast.class_balance import ClassBalanceLoss, FocalLoss
 from module.utils.ema import ExponentialMovingAverage
 from module.gast.domain_balance import examples_cnt, get_target_weight
 
@@ -46,8 +46,9 @@ parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refi
 
 parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
 parser.add_argument('--balance-temp', type=float, default=0.5, help='whether balance class or not')
+parser.add_argument('--balance-type', type=str, default='focal', help='focal, ohem, or ours')
 
-parser.add_argument('--balance-domain', type=str2bool, default=0, help='whether balance domain examples or not')
+# parser.add_argument('--balance-domain', type=str2bool, default=0, help='whether balance domain examples or not')
 
 parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
 args = parser.parse_args()
@@ -55,7 +56,7 @@ args = parser.parse_args()
 # get config from config.py
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
-
+assert args.balance_type in ['ours', 'focal', 'ohem']
 
 def main():
     time_from = time.time()
@@ -65,8 +66,10 @@ def main():
 
     logger = get_console_file_logger(name='GAST', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
-    logger.info(args)
-    logger.info(cfg)
+    # logger.info(args)
+    # logger.info(cfg)
+    logging_args(args, logger)
+    logging_cfg(cfg, logger)
 
     ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
     class_num = len(eval(cfg.DATASETS).LABEL_MAP)
@@ -93,16 +96,22 @@ def main():
     ema_model = ExponentialMovingAverage(model=model, decay=0.99)
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
-    cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
-                                 is_balance=args.balance_class, temperature=args.balance_temp)
-    cb_loss_t = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
-                                 is_balance=args.balance_class, temperature=args.balance_temp)
+    if args.balance_type == 'ours':
+        cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
+                                     is_balance=args.balance_class, temperature=args.balance_temp)
+        cb_loss_t = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
+                                     is_balance=args.balance_class, temperature=args.balance_temp)
+    elif args.balance_type == 'focal':
+        cb_loss_s = FocalLoss(gamma=2.0, reduction='mean')
+        cb_loss_t = FocalLoss(gamma=2.0, reduction='mean')
+    else:
+        exit(-1)
     # source loader
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     sourceloader_iter = Iterator(sourceloader)
 
-    cnt_s, ratio_s = examples_cnt(sourceloader, ignore_label=ignore_label, save_prob=False)
-    logger.info(f'source domain valid examples cnt={cnt_s}, ratio={ratio_s}')
+    # cnt_s, ratio_s = examples_cnt(sourceloader, ignore_label=ignore_label, save_prob=False)
+    # logger.info(f'source domain valid examples cnt={cnt_s}, ratio={ratio_s}')
 
     # pseudo loader (target)
     pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
@@ -170,14 +179,10 @@ def main():
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 ema_model.apply_shadow()
                 # save pseudo label for target domain
-                cnt_t, ratio_t = gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
                                                      size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
                                                      ignore_label=ignore_label)
                 ema_model.restore()
-                logger.info(f'target domain valid examples cnt={cnt_t}, ratio={ratio_t}')
-                if args.balance_domain:
-                    balance_domain_weight = get_target_weight(cnt_s, ratio_s, cnt_t, ratio_t)
-                logger.info(f'balance_domain_weight={balance_domain_weight}')
 
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
@@ -222,7 +227,7 @@ def main():
                 loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, reduction='none', multi=True)
                 loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)  # balance op
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss = loss_source + lmd_2 * balance_domain_weight * loss_pseudo + lmd_1 * loss_domain
+                loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -239,9 +244,6 @@ def main():
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
-            if args.balance_class:
-                logger.info(f'source domain: {cb_loss_s}')
-                logger.info(f'target domain: {cb_loss_t}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)

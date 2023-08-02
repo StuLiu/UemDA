@@ -10,6 +10,7 @@ import torch.nn.functional as tnf
 import numpy as np
 import ttach
 import ever as er
+import argparse
 # import pydensecrf.densecrf as dcrf # require py36
 
 from skimage.io import imsave
@@ -27,6 +28,22 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Unsupported value encountered.')
+
+
+def logging_args(args_namespace, logger):
+    logger.info(f'>>>>>>>>>>>>>>>>>>>>> arguments logging begin:')
+    for k, v in vars(args_namespace).items():
+        logger.info(f'{k}={v}')
+    logger.info(f'<<<<<<<<<<<<<<<<<<<<< arguments logging end!')
+
+
+def logging_cfg(cfg, logger):
+    logger.info(f'>>>>>>>>>>>>>>>>>>>>> config logging begin:')
+    logger.info(cfg.__name__)
+    for k, v in vars(cfg).items():
+        if str(k)[:2] != '__':
+            logger.info(f'{k}={v}')
+    logger.info(f'<<<<<<<<<<<<<<<<<<<<< config logging end!')
 
 
 def get_curr_time():

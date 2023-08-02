@@ -9,7 +9,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as tnf
-
+import math
 
 class ClassBalanceLoss(nn.Module):
 
@@ -55,18 +55,25 @@ class ClassBalanceLoss(nn.Module):
     def _get_class_wight(self):
         prob = (1.0 - self.freq) / self.temperature
         prob = torch.softmax(prob, dim=0)
-        # _max, _ = torch.max(prob, dim=0, keepdim=True)
-        _max = torch.mean(prob, dim=0, keepdim=True)
+        _max, _ = torch.max(prob, dim=0, keepdim=True)
         prob_normed = prob / (_max + self.eps)      # 0 ~ 1
         return prob_normed
+
+    # def _get_pixel_difficulty(self, ce_loss, label_onehot):
+    #     ce_loss = ce_loss.view(-1, 1)               # (b*h*w, 1)
+    #     ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
+    #     _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
+    #     pixel_difficulty = ce_loss_classwise / (_max + self.eps)    # (b*h*w, c)
+    #     pixel_difficulty = pixel_difficulty.sum(dim=1)      # (b*h*w,)
+    #     return pixel_difficulty
 
     def _get_pixel_difficulty(self, ce_loss, label_onehot):
         ce_loss = ce_loss.view(-1, 1)               # (b*h*w, 1)
         ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
-        # _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
-        _max = torch.mean(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
-        pixel_difficulty = ce_loss_classwise / (_max + self.eps)    # (b*h*w, c)
-        pixel_difficulty = pixel_difficulty.sum(dim=1)      # (b*h*w,)
+        _mean = torch.mean(ce_loss_classwise, dim=0, keepdim=True)      # (1, c)
+        pixel_difficulty = ce_loss_classwise / (_mean + self.eps)       # (b*h*w, c)
+        pixel_difficulty = pixel_difficulty.sum(dim=1)                  # (b*h*w,)
+        pixel_difficulty = torch.sigmoid(pixel_difficulty)
         return pixel_difficulty
 
     def _local_freq(self, label):
@@ -103,7 +110,38 @@ class ClassBalanceLoss(nn.Module):
         return res
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, ce_loss, targets):
+        # ce_loss = tnf.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        if self.alpha is not None:
+            alpha_t = self.alpha[targets].view(-1, 1)
+            focal_loss = alpha_t * focal_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+
 if __name__ == '__main__':
+
+    input = torch.rand(8, 5, 64, 64)
+    target = torch.randint(0, 2, ((8, 64, 64)))
+    FL= FocalLoss()
+    print('focal loss: ', FL(tnf.cross_entropy(input, target, reduction='none'), target))
+
+
     cbl = ClassBalanceLoss()
 
 

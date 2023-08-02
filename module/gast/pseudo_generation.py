@@ -73,7 +73,7 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
         os.makedirs(save_pseudo_color_path)
     viz_op = VisualizeSegmm(save_pseudo_color_path, eval(_cfg.DATASETS).PALETTE)
     num_classes = len(eval(_cfg.DATASETS).LABEL_MAP)
-    cnt, cnt_all = 0.0, 0.0
+
     with torch.no_grad():
         _i = 0
         for ret, ret_gt in tqdm(pseudo_loader):
@@ -82,11 +82,8 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
             #     break
 
             ret = ret.cuda()
-
             cls = pre_slide(model, ret, num_classes=num_classes, tta=True) if slide else model(ret)  # (b, c, h, w)
-            lbl = pseudo_selection(cls, return_type='tensor', ignore_label=ignore_label)
-            cnt += torch.sum(lbl != ignore_label).detach().cpu().item()
-            cnt_all += lbl.shape[-1] * lbl.shape[-2]
+
             if save_prob:
                 # np.save(save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.npy',
                 #         tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(
@@ -95,12 +92,14 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
                 torch.save(tnf.interpolate(cls, size, mode='bilinear', align_corners=True).squeeze(dim=0).cpu(),
                            save_pseudo_label_path + '/' + ret_gt['fname'][0] + '.pt')   # (c, h, w)
                 if _cfg.SNAPSHOT_DIR is not None:
-                    for fname, pred in zip(ret_gt['fname'], lbl.cpu().numpy()):
+                    cls = pseudo_selection(cls, ignore_label=ignore_label,
+                                           cutoff_top=_cfg.CUTOFF_TOP, cutoff_low=_cfg.CUTOFF_LOW)  # (b, h, w)
+                    for fname, pred in zip(ret_gt['fname'], cls):
                         viz_op(pred, fname.replace('.tif', '.png'))
             else:
                 # pseudo selection, from -1~6
                 if _cfg.PSEUDO_SELECT:
-                    # cls = pseudo_selection(cls, ignore_label=ignore_label)  # (b, h, w)
+                    lbl = pseudo_selection(cls, ignore_label=ignore_label)  # (b, h, w)
                     cls = lbl.cpu().numpy()  # (b, h, w)
                 else:
                     cls = cls.argmax(dim=1).cpu().numpy()
@@ -111,5 +110,3 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
                 if _cfg.SNAPSHOT_DIR is not None:
                     for fname, pred in zip(ret_gt['fname'], cls):
                         viz_op(pred, fname.replace('.tif', '.png'))
-    print(cnt / cnt_all)
-    return cnt, cnt / cnt_all

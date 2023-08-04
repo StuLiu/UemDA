@@ -237,7 +237,7 @@ def get_console_file_logger(name, level=logging.INFO, logdir='./baseline'):
     return logger
 
 
-def loss_calc(pred, label, reduction='mean', multi=False):
+def loss_calc(pred, label, loss_fn, multi=False):
     """
     This function returns cross entropy loss for semantic segmentation
     """
@@ -249,13 +249,13 @@ def loss_calc(pred, label, reduction='mean', multi=False):
             if p.size()[-2:] != label.size()[-2:]:
                 p = tnf.interpolate(p, size=label.size()[-2:], mode='bilinear', align_corners=True)
             # l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
-            loss += tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
+            loss += loss_fn(torch.softmax(p, dim=1), label.long())
             num += 1
         loss = loss / num
     else:
         if pred.size()[-2:] != label.size()[-2:]:
             pred = tnf.interpolate(pred, size=label.size()[-2:], mode='bilinear', align_corners=True)
-        loss = tnf.cross_entropy(pred, label.long(), ignore_index=-1, reduction=reduction)
+        loss = loss_fn(torch.softmax(pred, dim=1), label.long())
 
     return loss
 

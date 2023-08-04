@@ -24,10 +24,9 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.class_balance import ClassBalanceLoss, FocalLoss
+from module.gast.class_balance import ClassBalanceLoss, FocalLoss, GHMLoss
 from module.utils.ema import ExponentialMovingAverage
 from module.gast.domain_balance import examples_cnt, get_target_weight
-
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
@@ -44,11 +43,9 @@ parser.add_argument('--refine-label', type=str2bool, default=1, help='whether re
 parser.add_argument('--refine-mode', type=str, default='all', help='whether refine the pseudo label or not')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label or not')
 
-parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
+# parser.add_argument('--balance-class', type=str2bool, default=0, help='whether balance class or not')
+parser.add_argument('--balance-type', type=str, default='ghm', help='focal, ohem, ghm, or ours')
 parser.add_argument('--balance-temp', type=float, default=0.5, help='whether balance class or not')
-parser.add_argument('--balance-type', type=str, default='focal', help='focal, ohem, or ours')
-
-# parser.add_argument('--balance-domain', type=str2bool, default=0, help='whether balance domain examples or not')
 
 parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
 args = parser.parse_args()
@@ -56,7 +53,8 @@ args = parser.parse_args()
 # get config from config.py
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
-assert args.balance_type in ['ours', 'focal', 'ohem']
+assert args.balance_type in ['ours', 'focal', 'ohem', 'ghm', 'none']
+
 
 def main():
     time_from = time.time()
@@ -66,8 +64,6 @@ def main():
 
     logger = get_console_file_logger(name='GAST', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
-    # logger.info(args)
-    # logger.info(cfg)
     logging_args(args, logger)
     logging_cfg(cfg, logger)
 
@@ -94,18 +90,29 @@ def main():
         is_ins_norm=True,
     )).cuda()
     ema_model = ExponentialMovingAverage(model=model, decay=0.99)
+
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
+
     if args.balance_type == 'ours':
+        logger.info('>>>>>>> using ours loss.')
         cb_loss_s = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
-                                     is_balance=args.balance_class, temperature=args.balance_temp)
+                                     temperature=args.balance_temp, hard=False)
         cb_loss_t = ClassBalanceLoss(class_num=class_num, ignore_label=ignore_label, decay=0.996,
-                                     is_balance=args.balance_class, temperature=args.balance_temp)
+                                     temperature=args.balance_temp, hard=False)
     elif args.balance_type == 'focal':
-        cb_loss_s = FocalLoss(gamma=2.0, reduction='mean')
-        cb_loss_t = FocalLoss(gamma=2.0, reduction='mean')
+        logger.info('>>>>>>> using FocalLoss.')
+        cb_loss_s = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
+        cb_loss_t = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
+    elif args.balance_type == 'ghm':
+        logger.info('>>>>>>> using GHMLoss.')
+        cb_loss_s = GHMLoss(bins=64, momentum=0, ignore_label=ignore_label)
+        cb_loss_t = GHMLoss(bins=64, momentum=0, ignore_label=ignore_label)
     else:
-        exit(-1)
+        logger.info('>>>>>>> using CrossEntropyLoss.')
+        cb_loss_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+        cb_loss_t = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+
     # source loader
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     sourceloader_iter = Iterator(sourceloader)
@@ -126,8 +133,6 @@ def main():
 
     optimizer = optim.SGD(model.parameters(),
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
-
-    balance_domain_weight = 1.0
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
 
         lmd_1 = portion_warmup(i_iter=i_iter, start_iter=0, end_iter=cfg.NUM_STEPS_STOP)
@@ -153,8 +158,8 @@ def main():
             _, _, feat_t = model(images_t)
 
             # Loss: source segmentation + global alignment
-            loss_seg = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
-            loss_seg = cb_loss_s(loss_seg, label_s)
+            loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=cb_loss_s, multi=True)
+            # loss_seg = cb_loss_s(loss_seg, label_s)
 
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
             loss = loss_seg + lmd_1 * loss_domain
@@ -180,8 +185,7 @@ def main():
                 ema_model.apply_shadow()
                 # save pseudo label for target domain
                 gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
-                                                     size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True,
-                                                     ignore_label=ignore_label)
+                                    size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True, ignore_label=ignore_label)
                 ema_model.restore()
 
                 # save finish
@@ -222,10 +226,10 @@ def main():
                 aligner.update_prototype(feat_t, label_t_hard)
 
                 # loss
-                loss_source = loss_calc([pred_s1, pred_s2], label_s, reduction='none', multi=True)
-                loss_source = cb_loss_s(loss_source, label_s)  # balance op
-                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, reduction='none', multi=True)
-                loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)  # balance op
+                loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=cb_loss_s, multi=True)
+                # loss_source = cb_loss_s(loss_source, label_s)  # balance op
+                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, loss_fn=cb_loss_t, multi=True)
+                # loss_pseudo = cb_loss_t(loss_pseudo, label_t_hard)  # balance op
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
 
@@ -244,6 +248,9 @@ def main():
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
+            if args.balance_type == 'ours':
+                logger.info(f'source domain: {cb_loss_s}')
+                logger.info(f'target domain: {cb_loss_t}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)

@@ -152,19 +152,17 @@ class GHMLoss(nn.Module):
 
         # Flatten the prediction and target tensors
         preds = preds.permute((0, 2, 3, 1)).reshape(-1, n_classes)
-        prob_max, _ = torch.max(preds, dim=1)
+        prob_max, _ = torch.max(torch.softmax(preds, dim=1), dim=1)
         targets = targets.view(-1)
-        labels = targets.clone()
-        cond_ignore = (targets == self.ignore_label) & (targets < 0) & (targets >= n_classes)
-        targets[cond_ignore] = 0    # to avoid invalid visit
 
         # Calculate the gradient of the prediction
         gradient = torch.abs(prob_max - 1.0)
+        cond_ignore = (targets == self.ignore_label) & (targets < 0) & (targets >= n_classes)
         gradient[cond_ignore] = -1      # ignore the invalid or ignored targets
 
         # Sort the gradient and prediction values
         bins = torch.histc(gradient, bins=self.bins, min=0, max=1)
-        inds = torch.bucketize(gradient, self.edges)
+        inds = torch.bucketize(gradient, self.edges) # lower than min will be 0, lager than max will be len(bins)
 
         # Calculate the weights for each sample based on the gradient
         weights = torch.zeros_like(gradient).cuda()
@@ -184,7 +182,7 @@ class GHMLoss(nn.Module):
                 # weights[cond_weights] = 1.0 / (bins[inds - 1])
         weights = weights.detach()
         # Calculate the GHM loss
-        loss = tnf.cross_entropy(preds, labels, reduction='none', ignore_index=self.ignore_label)
+        loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
         loss = loss * weights
         loss = loss.sum() / (weights.sum() + 1e-7)
         return loss

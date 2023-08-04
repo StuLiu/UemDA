@@ -249,13 +249,13 @@ def loss_calc(pred, label, loss_fn, multi=False):
             if p.size()[-2:] != label.size()[-2:]:
                 p = tnf.interpolate(p, size=label.size()[-2:], mode='bilinear', align_corners=True)
             # l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
-            loss += loss_fn(torch.softmax(p, dim=1), label.long())
+            loss += loss_fn(p, label.long())
             num += 1
         loss = loss / num
     else:
         if pred.size()[-2:] != label.size()[-2:]:
             pred = tnf.interpolate(pred, size=label.size()[-2:], mode='bilinear', align_corners=True)
-        loss = loss_fn(torch.softmax(pred, dim=1), label.long())
+        loss = loss_fn(pred, label.long())
 
     return loss
 

@@ -157,29 +157,25 @@ class GHMLoss(nn.Module):
 
         # Calculate the gradient of the prediction
         gradient = torch.abs(prob_max - 1.0)
-        cond_ignore = (targets == self.ignore_label) & (targets < 0) & (targets >= n_classes)
+        cond_ignore = (targets == self.ignore_label) | (targets < 0) | (targets >= n_classes)
         gradient[cond_ignore] = -1      # ignore the invalid or ignored targets
 
         # Sort the gradient and prediction values
-        bins = torch.histc(gradient, bins=self.bins, min=0, max=1)
-        inds = torch.bucketize(gradient, self.edges) # lower than min will be 0, lager than max will be len(bins)
+        bins = torch.histc(gradient, bins=self.bins, min=0, max=1)  # out-bounded values will not be statistic
+        inds = torch.bucketize(gradient, self.edges)  # lower than min will be 0, lager than max will be len(bins)
 
         # Calculate the weights for each sample based on the gradient
         weights = torch.zeros_like(gradient).cuda()
         cond_weights = (inds > 0) & (inds <= self.bins)
         if cond_weights.sum() > 0:
+            # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, '
+            #       f'g.max={gradient.max()}, target-range={torch.unique(targets)}')
             if self.momentum > 0:
-                # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, g.max={gradient.max()}, target-range={torch.unique(targets)}')
-                # print(bins)
-                # print(self.acc_sum)
                 ema = self.momentum * self.acc_sum + (1 - self.momentum) * bins
                 self.acc_sum = torch.where(bins != 0, ema, self.acc_sum)
-                weights[cond_weights] = 1.0 / (self.acc_sum[inds - 1])
+                weights = torch.where(cond_weights, 1.0 / (self.acc_sum[inds - 1]), weights)
             else:
-                # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, g.max={gradient.max()}, target-range={torch.unique(targets)}')
-                weights = torch.where(cond_weights, 1.0 / (bins[inds - 1]), torch.zeros(1).cuda())
-
-                # weights[cond_weights] = 1.0 / (bins[inds - 1])
+                weights = torch.where(cond_weights, 1.0 / (bins[inds - 1]), weights)
         weights = weights.detach()
         # Calculate the GHM loss
         loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)

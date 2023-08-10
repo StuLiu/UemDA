@@ -12,70 +12,123 @@ import torch.nn.functional as tnf
 import math
 
 
-class ClassBalanceLoss(nn.Module):
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean', ignore_label=-1):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.ignore_label = ignore_label
 
-    def __init__(self, class_num=7, ignore_label=-1, decay=0.998, min_prob=0.01, temperature=0.5, hard=True):
+    def forward(self, preds, targets):
+        ce_loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        if self.alpha is not None:
+            alpha_t = self.alpha[targets].view(-1, 1)
+            focal_loss = alpha_t * focal_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+
+class GHMLoss(nn.Module):
+
+    def __init__(self, bins=30, momentum=0.0, ignore_label=-1):
+        super(GHMLoss, self).__init__()
+        self.bins_num = bins
+        self.momentum = momentum
+        self.ignore_label = ignore_label
+        self.edges = [float(x) / bins for x in range(bins + 1)]
+        self.edges[-1] = self.edges[-1] + 1e-3
+        self.edges = torch.FloatTensor(self.edges).cuda()
+        self.acc_sum = torch.zeros(bins).cuda()
+
+    def forward(self, preds, targets):
+        # Compute the number of classes
+        n_classes = preds.size(1)
+
+        # Flatten the prediction and target tensors
+        preds = preds.permute((0, 2, 3, 1)).reshape(-1, n_classes)
+        probs = torch.softmax(preds, dim=1)
+        targets = targets.view(-1)
+
+        # Convert id labels to one_hot
+        labels = targets.clone().detach()
+        labels[labels == self.ignore_label] = n_classes
+        labels_onehot = tnf.one_hot(labels, num_classes=n_classes + 1)[:, : -1]
+
+        # Calculate the gradient of the prediction
+        prob_y = torch.sum(probs * labels_onehot, dim=1)
+        gradient = torch.abs(prob_y - 1.0)
+        gradient[targets == self.ignore_label] = -1      # ignore the invalid or ignored targets
+
+        # Sort the gradient and prediction values
+        bins = torch.histc(gradient, bins=self.bins_num, min=0, max=1)  # out-bounded values will not be statistic
+        inds = torch.bucketize(gradient, self.edges)  # lower than min will be 0, lager than max will be len(bins)
+
+        # Calculate the weights for each sample based on the gradient
+        weights = torch.zeros_like(gradient).cuda()
+        # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, '
+        #       f'g.max={gradient.max()}, target-range={torch.unique(targets)}')
+        if self.momentum > 0:
+            self.acc_sum = self.momentum * self.acc_sum.detach() + (1 - self.momentum) * bins
+        else:
+            self.acc_sum = bins
+        weights = torch.where((inds > 0) & (inds <= self.bins_num).to(torch.bool),
+                              1.0 / (self.acc_sum[inds - 1]),
+                              weights)
+        weights = weights.detach()
+        # Calculate the GHM loss
+        loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
+        loss = loss * weights
+        loss = loss.sum() / (weights.sum() + 1e-7)
+        return loss
+
+    def get_g_distribution(self):
+        return self.acc_sum / (self.acc_sum.sum() + 1e-7)
+
+
+class ClassBalance(nn.Module):
+
+    def __init__(self, class_num=7, ignore_label=-1, decay=0.99, temperature=0.5):
         super().__init__()
         assert temperature > 0
         self.class_num = class_num
         self.ignore_label = ignore_label
         self.decay = decay
-        self.min_prob = torch.FloatTensor([min_prob]).cuda()[0]
         self.temperature = temperature
-        self.is_hard = hard
         self.eps = 1e-7
         self.freq = torch.ones([class_num]).float().cuda() / class_num
 
-    def forward(self, preds: torch.Tensor, label: torch.Tensor):
-        ce_loss = tnf.cross_entropy(preds, label, reduction='none')
-        b, h, w = ce_loss.shape
-        # update frequency for each class
-        self.freq = self._ema(self.freq, self._local_freq(label), decay=self.decay)
-
+    def get_class_weight_4pixel(self, label):
+        self.ema_update(label)
         label_onehot = self._one_hot(label)  # (b*h*w, c)
         # loss weight computed by class frequency
         class_prob = self._get_class_wight()  # (c,)
         weight = (label_onehot * class_prob.unsqueeze(dim=0)).sum(dim=1)  # (b*h*w,)
-        # loss weight computed by difficulty
-        if self.is_hard:
-            weight_hard = self._get_pixel_difficulty(ce_loss, label_onehot)  # (b*h*w,)
-            # merged weight
-            weight = ((weight + weight_hard) * 0.5)  # (b, h, w)
-        weight = weight.view(b, h, w).detach()
-        # balanced loss
-        loss_balanced = torch.mean(weight * ce_loss)
-        return loss_balanced
+        return weight.detach()  # (b*h*w, )
 
     def ema_update(self, label):
         self.freq = self._ema(self.freq, self._local_freq(label), decay=self.decay)
 
     def _get_class_wight(self):
-        prob = (1.0 - self.freq) / self.temperature
-        prob = torch.softmax(prob, dim=0)
-        _max, _ = torch.max(prob, dim=0, keepdim=True)
-        prob_normed = prob / (_max + self.eps)  # 0 ~ 1
+        _prob = (1.0 - self.freq) / self.temperature
+        _prob = torch.softmax(_prob, dim=0)
+        _max, _ = torch.max(_prob, dim=0, keepdim=True)
+        prob_normed = _prob / (_max + self.eps)  # 0 ~ 1
         return prob_normed
 
-    # def _get_pixel_difficulty(self, ce_loss, label_onehot):
-    #     ce_loss = ce_loss.view(-1, 1)               # (b*h*w, 1)
-    #     ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
-    #     _max, _ = torch.max(ce_loss_classwise, dim=0, keepdim=True)     # (1, c)
-    #     pixel_difficulty = ce_loss_classwise / (_max + self.eps)    # (b*h*w, c)
-    #     pixel_difficulty = pixel_difficulty.sum(dim=1)      # (b*h*w,)
-    #     return pixel_difficulty
-
-    def _get_pixel_difficulty(self, ce_loss, label_onehot):
-        ce_loss = ce_loss.view(-1, 1)  # (b*h*w, 1)
-        ce_loss_classwise = ce_loss * label_onehot  # (b*h*w, c)
-        _mean = torch.mean(ce_loss_classwise, dim=0, keepdim=True)  # (1, c)
-        pixel_difficulty = ce_loss_classwise / (_mean + self.eps)  # (b*h*w, c)
-        pixel_difficulty = pixel_difficulty.sum(dim=1)  # (b*h*w,)
-        pixel_difficulty = torch.sigmoid(pixel_difficulty)
-        return pixel_difficulty
-
     def _local_freq(self, label):
-        assert len(label.shape) == 3
-        local_cnt = torch.sum((label != self.ignore_label).float())
+        lbl = label.clone()
+        if len(lbl.shape) > 3:
+            lbl = torch.squeeze(lbl, dim=1)
+        local_cnt = torch.sum((lbl != self.ignore_label).float())
         label_onehot = self._one_hot(label)
         class_cnt = label_onehot.sum(dim=0).float()
         class_freq = class_cnt / (local_cnt + self.eps)
@@ -107,44 +160,29 @@ class ClassBalanceLoss(nn.Module):
         return res
 
 
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0, reduction='mean', ignore_label=-1):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.ignore_label = ignore_label
+class GDPLoss(nn.Module):
 
-    def forward(self, preds, targets):
-        ce_loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
-        pt = torch.exp(-ce_loss)
-        focal_loss = (1 - pt) ** self.gamma * ce_loss
-
-        if self.alpha is not None:
-            alpha_t = self.alpha[targets].view(-1, 1)
-            focal_loss = alpha_t * focal_loss
-
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
-
-
-class GHMLoss(nn.Module):
-
-    def __init__(self, bins=30, momentum=0.0, ignore_label=-1):
-        super(GHMLoss, self).__init__()
-        self.bins = bins
+    def __init__(self, bins=30, momentum=0.99, class_num=7, ignore_label=-1,
+                 class_balance=False, prototype_refine=False):
+        super(GDPLoss, self).__init__()
+        self.bins_num = bins
         self.momentum = momentum
         self.ignore_label = ignore_label
+        self.class_balance = class_balance
+        self.prototype_refine = prototype_refine
         self.edges = [float(x) / bins for x in range(bins + 1)]
         self.edges[-1] = self.edges[-1] + 1e-3
         self.edges = torch.FloatTensor(self.edges).cuda()
-        if momentum > 0:
-            # self.acc_sum = [torch.zeros(1).cuda() for _ in range(bins)]
-            self.acc_sum = torch.zeros(bins).cuda()
+        self.acc_sum = torch.zeros(bins).cuda()
+        self.bins_weight = None
+
+        # for each pixel
+        self.weight_bins = None
+        if prototype_refine:
+            self.weight_prototype = None
+        if class_balance:
+            self.class_balancer = ClassBalance(class_num=class_num,  ignore_label=ignore_label, decay=0.99,
+                                               temperature=0.5)
 
     def forward(self, preds, targets):
         # Compute the number of classes
@@ -152,48 +190,74 @@ class GHMLoss(nn.Module):
 
         # Flatten the prediction and target tensors
         preds = preds.permute((0, 2, 3, 1)).reshape(-1, n_classes)
-        prob_max, _ = torch.max(torch.softmax(preds, dim=1), dim=1)
+        probs = torch.softmax(preds, dim=1)
         targets = targets.view(-1)
 
+        # Convert id labels to one_hot
+        labels = targets.clone().detach()
+        labels[labels == self.ignore_label] = n_classes
+        labels_onehot = tnf.one_hot(labels, num_classes=n_classes + 1)[:, : -1]
+
         # Calculate the gradient of the prediction
-        gradient = torch.abs(prob_max - 1.0)
-        cond_ignore = (targets == self.ignore_label) | (targets < 0) | (targets >= n_classes)
-        gradient[cond_ignore] = -1      # ignore the invalid or ignored targets
+        prob_y = torch.sum(probs * labels_onehot, dim=1)
+        gradient = torch.abs(prob_y - 1.0)
+        gradient[targets == self.ignore_label] = -1      # ignore the invalid or ignored targets
 
         # Sort the gradient and prediction values
-        bins = torch.histc(gradient, bins=self.bins, min=0, max=1)  # out-bounded values will not be statistic
+        bins = torch.histc(gradient, bins=self.bins_num, min=0, max=1)  # out-bounded values will not be statistic
+        bins = (bins + torch.flip(bins, dims=[0])) * 0.5
         inds = torch.bucketize(gradient, self.edges)  # lower than min will be 0, lager than max will be len(bins)
 
+        # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, '
+        #       f'g.max={gradient.max()}, target-range={torch.unique(targets)}')
+        if self.momentum > 0:
+            self.acc_sum = self.momentum * self.acc_sum.detach() + (1 - self.momentum) * bins
+        else:
+            self.acc_sum = bins
+
         # Calculate the weights for each sample based on the gradient
-        weights = torch.zeros_like(gradient).cuda()
-        cond_weights = (inds > 0) & (inds <= self.bins)
-        if cond_weights.sum() > 0:
-            # print(f'inds.min={inds.min()}, inds.max={inds.max()}, g.min={gradient.min()}, '
-            #       f'g.max={gradient.max()}, target-range={torch.unique(targets)}')
-            if self.momentum > 0:
-                ema = self.momentum * self.acc_sum + (1 - self.momentum) * bins
-                self.acc_sum = torch.where(bins != 0, ema, self.acc_sum)
-                weights = torch.where(cond_weights, 1.0 / (self.acc_sum[inds - 1]), weights)
-            else:
-                weights = torch.where(cond_weights, 1.0 / (bins[inds - 1]), weights)
-        weights = weights.detach()
+        weight_bins = self._get_dense_weight(self.acc_sum, inds)
+
         # Calculate the GHM loss
         loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
-        loss = loss * weights
-        loss = loss.sum() / (weights.sum() + 1e-7)
+        loss = loss * weight_bins
+        if self.prototype_refine:
+            loss = loss * self.weight_prototype
+        if self.class_balance:
+            loss = loss * self.class_balancer.get_class_weight_4pixel(targets)
+        loss = loss.sum() / (torch.sum(targets != -1) + 1e-7)
         return loss
+
+    def set_prototype_weight_4pixel(self, weight_prototype):
+        self.weight_prototype = weight_prototype
+
+    def _get_dense_weight(self, bins, inds):
+        cond = (bins != 0).to(torch.bool)
+        _bins = 1 - bins / (bins.sum() + 1e-7)
+        _bins = torch.where(cond, _bins, torch.zeros_like(bins).cuda())
+        _bins = _bins / (_bins.max() + 1e-7)
+        self.bins_weight = _bins
+
+        # calculate
+        weight_bins = torch.zeros_like(inds, dtype=torch.float).cuda()
+        weight_bins = torch.where((inds > 0) & (inds <= self.bins_num).to(torch.bool), _bins[inds - 1], weight_bins)
+        return weight_bins.detach()
+
+    def get_g_distribution(self):
+        return self.acc_sum / (self.acc_sum.sum() + 1e-7), self.bins_weight, str(self.class_balancer)
 
 
 if __name__ == '__main__':
 
-    prob = torch.rand(8, 6, 512, 512).cuda()
+    prob = torch.rand(8, 7, 512, 512).cuda()
     target = torch.randint(-1, 2, (8, 512, 512)).cuda()
     FL = FocalLoss()
     # print('focal loss: ', FL(tnf.cross_entropy(prob, target, reduction='none'), target))
 
-    ghm = GHMLoss(momentum=0)
-    print('ghm loss: ', ghm(torch.softmax(prob, dim=1), target))
+    gdp = GDPLoss(momentum=0.9, class_balance=True, prototype_refine=False)
+    print('gdp loss: ', gdp(torch.softmax(prob, dim=1), target))
 
+    print(gdp.get_g_distribution())
 
     def rand_x_l():
         return torch.randn([8, 3, 512, 512]).float().cuda(), \
@@ -204,12 +268,8 @@ if __name__ == '__main__':
 
     x_s, x_t, l_s, l_t = rand_x_l()
 
-    cbl = ClassBalanceLoss(class_num=3)
+    cbl = ClassBalance(class_num=3)
     _rand_val = torch.rand_like(l_t, dtype=torch.float).cuda()
     for _ in range(1000):
         cbl.ema_update(l_t)
-    _ce_loss = torch.rand([8, 512, 512]).cuda()
-    l_t[:, 0, :] = 0
-    print(torch.mean(_ce_loss))
-    _loss = cbl(x_t, l_t)
-    print(_loss)
+    print(cbl)

@@ -132,7 +132,7 @@ class Aligner:
 
             if mode in ['all', 'p']:
                 b, k, h, w = feat_t.shape
-                feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)                  # (b*h*w, c)
+                feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)                  # (b*h*w, k)
                 simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)     # (b*h*w, c) Pearson distance
                 # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
                 simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
@@ -157,6 +157,21 @@ class Aligner:
         #                                 ignore_label=self.ignore_label)
         # return label_t_hard  # (b, h, w)
         return label_t_soft
+
+    def get_prototype_weight_4pixel(self, feats, label_hard):
+        b, k, h, w = feats.shape
+        _, h2, w2 = label_hard.shape
+        _feats = feats.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
+        simi_matrix = 1.0 / self._pearson_dist(_feats, self.prototypes)  # (b*h*w, c) Pearson distance
+        simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
+        simi_matrix = tnf.interpolate(simi_matrix, label_hard.shape[-2:],
+                                      mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
+        simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 32*h, 32*w)
+        max_v, _ = torch.max(simi_matrix, dim=1, keepdim=True)
+        simi_matrix = simi_matrix / (max_v + self.eps)
+        label_onehot = self._index2onehot(label_hard).reshape(b, h2, w2, -1).permute(0, 3, 1, 2)   # (b, c, 32*h, 32*w)
+        weight = torch.sum(simi_matrix * label_onehot, dim=1).reshape(-1)
+        return weight.detach()   # (b* 32*h* 32*w)
 
     @staticmethod
     def _softmax_T(feat, temp=1.0, dim=1):
@@ -313,6 +328,8 @@ class Aligner:
             labels: (b*h*w, c)
         """
         labels = label.clone()
+        if len(label.shape) < 4:
+            labels = labels.unsqueeze(dim=1)
         labels = labels.permute(0, 2, 3, 1).reshape(-1, 1)  # (b*h*w, 1)
         labels[labels == self.ignore_label] = self.class_num
         labels = tnf.one_hot(labels.squeeze(1), num_classes=self.class_num + 1)[:, :-1]  # (b*h*w, c)
@@ -378,9 +395,15 @@ if __name__ == '__main__':
     def rand_x_l():
         return torch.randn([8, 3, 512, 512]).float().cuda(), \
             torch.ones([8, 3, 512, 512]).float().cuda() / 2, \
-            torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
+            torch.randint(-1, 1, [8, 512, 512]).long().cuda(), \
             torch.randint(1, 2, [8, 512, 512]).long().cuda()
 
+
+    x_s, x_t, l_s, l_t = rand_x_l()
+    _, _, f_s = model(x_s)
+
+    w = aligner.get_prototype_weight_4pixel(f_s, l_s)
+    print(w.shape)
 
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()

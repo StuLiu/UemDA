@@ -43,9 +43,9 @@ parser.add_argument('--refine-label', type=str2bool, default=1, help='whether re
 parser.add_argument('--refine-mode', type=str, default='all', help='whether refine the pseudo label')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 
-parser.add_argument('--balance-type', type=str, default='ghm', help='focal, ohem, ghm, or ours')
+parser.add_argument('--balance-type', type=str, default='gdp', help='focal, ohem, ghm, or ours')
 parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class')
-parser.add_argument('--balance-pt', type=str2bool, default=1, help='whether re-weight by prototypes')
+parser.add_argument('--balance-pt', type=str2bool, default=0, help='whether re-weight by prototypes')
 parser.add_argument('--balance-temp', type=float, default=0.5, help='smooth factor')
 
 parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
@@ -97,9 +97,9 @@ def main():
 
     if args.balance_type in ['ours', 'gdp']:
         logger.info('>>>>>>> using ours/gdp loss.')
-        loss_fn_s = GDPLoss(bins=64, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
+        loss_fn_s = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
                             class_balance=args.balance_class, prototype_refine=args.balance_pt)
-        loss_fn_t = GDPLoss(bins=64, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
+        loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
                             class_balance=args.balance_class, prototype_refine=args.balance_pt)
     elif args.balance_type == 'focal':
         logger.info('>>>>>>> using FocalLoss.')

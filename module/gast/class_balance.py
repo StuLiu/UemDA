@@ -218,13 +218,15 @@ class GDPLoss(nn.Module):
         # Calculate the weights for each sample based on the gradient
         weight_bins = self._get_dense_weight(self.acc_sum, inds)
 
-        # Calculate the GHM loss
+        # Calculate the gdp loss
         loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
-        loss = loss * weight_bins
+        weight_pixels = weight_bins
         if self.prototype_refine:
-            loss = loss * self.weight_prototype
+            weight_pixels = weight_pixels + self.weight_prototype
         if self.class_balance:
-            loss = loss * self.class_balancer.get_class_weight_4pixel(targets)
+            weight_pixels = weight_pixels + self.class_balancer.get_class_weight_4pixel(targets)
+        # print((1.0 + int(self.prototype_refine) + int(self.class_balance)))
+        loss = loss * weight_pixels / (1.0 + int(self.prototype_refine) + int(self.class_balance))
         loss = loss.sum() / (torch.sum(targets != -1) + 1e-7)
         return loss
 

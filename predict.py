@@ -1,6 +1,6 @@
 import warnings
-
-from module.datasets.loveda import LoveDALoader
+from module.datasets import LoveDA
+from module.datasets.daLoader import DALoader
 from module.utils.tools import *
 from skimage.io import imsave
 from module.models.Encoder import Deeplabv2
@@ -17,10 +17,10 @@ def predict_test(model, cfg, ckpt_path=None, save_dir='./submit_test', slide=Tru
     count_model_parameters(model, get_console_file_logger(name='CBST', logdir='log/infer'))
     model.eval()
     print(cfg.TEST_DATA_CONFIG)
-    eval_dataloader = LoveDALoader(cfg.TEST_DATA_CONFIG)
+    test_dataloader = DALoader(cfg.TEST_DATA_CONFIG, cfg.DATASETS)
 
     with torch.no_grad():
-        for ret, ret_gt in tqdm(eval_dataloader):
+        for ret, ret_gt in tqdm(test_dataloader):
             ret = ret.to(torch.device('cuda'))
             cls = pre_slide(model, ret, tta=True) if slide else model(ret)
             cls = cls.argmax(dim=1).cpu().numpy()

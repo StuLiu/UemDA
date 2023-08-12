@@ -180,8 +180,7 @@ class GDPLoss(nn.Module):
         self.weight_bins = None
         if prototype_refine:
             self.weight_prototype = None
-        if class_balance:
-            self.class_balancer = ClassBalance(class_num=class_num,  ignore_label=ignore_label, decay=0.99,
+        self.class_balancer = ClassBalance(class_num=class_num,  ignore_label=ignore_label, decay=0.99,
                                                temperature=0.5)
 
     def forward(self, preds, targets):

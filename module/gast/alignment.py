@@ -158,7 +158,7 @@ class Aligner:
         # return label_t_hard  # (b, h, w)
         return label_t_soft
 
-    def get_prototype_weight_4pixel(self, feats, label_hard):
+    def get_prototype_weight_4pixel(self, feats, label_hard, temp=2.0):
         b, k, h, w = feats.shape
         _, h2, w2 = label_hard.shape
         _feats = feats.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
@@ -166,7 +166,8 @@ class Aligner:
         simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
         simi_matrix = tnf.interpolate(simi_matrix, label_hard.shape[-2:],
                                       mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-        simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 32*h, 32*w)
+        # simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 32*h, 32*w)
+        simi_matrix = self._softmax_T(simi_matrix, temp=temp, dim=1)      # (b, c, 32*h, 32*w)
         max_v, _ = torch.max(simi_matrix, dim=1, keepdim=True)
         simi_matrix = simi_matrix / (max_v + self.eps)
         label_onehot = self._index2onehot(label_hard).reshape(b, h2, w2, -1).permute(0, 3, 1, 2)   # (b, c, 32*h, 32*w)

@@ -110,3 +110,8 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
                 if _cfg.SNAPSHOT_DIR is not None:
                     for fname, pred in zip(ret_gt['fname'], cls):
                         viz_op(pred, fname.replace('.tif', '.png'))
+
+
+# def analysis_pseudo_labels():
+#
+#     return

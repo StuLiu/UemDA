@@ -163,7 +163,7 @@ class ClassBalance(nn.Module):
 class GDPLoss(nn.Module):
 
     def __init__(self, bins=30, momentum=0.99, class_num=7, ignore_label=-1,
-                 class_balance=False, prototype_refine=False):
+                 class_balance=False, prototype_refine=False, temp=0.5):
         super(GDPLoss, self).__init__()
         self.bins_num = bins
         self.momentum = momentum
@@ -180,8 +180,8 @@ class GDPLoss(nn.Module):
         self.weight_bins = None
         if prototype_refine:
             self.weight_prototype = None
-        self.class_balancer = ClassBalance(class_num=class_num,  ignore_label=ignore_label, decay=0.99,
-                                               temperature=0.5)
+        self.class_balancer = ClassBalance(class_num=class_num, ignore_label=ignore_label, decay=0.99,
+                                           temperature=temp)
 
     def forward(self, preds, targets):
         # Compute the number of classes

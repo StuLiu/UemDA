@@ -6,14 +6,15 @@ import math
 from eval import evaluate
 from module.utils.tools import *
 from module.models.Encoder import Deeplabv2
-from module.datasets.loveda import LoveDALoader
-from module.utils.tools import COLOR_MAP
+from module.datasets import LoveDA, IsprsDA
+from module.datasets.daLoader import DALoader
+# from module.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 from skimage.io import imsave
 
-palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
+# palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
 
 
@@ -36,7 +37,11 @@ def main():
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(save_pseudo_label_path, exist_ok=True)
     os.makedirs(save_stats_path, exist_ok=True)
-    
+    logging_args(args, logger)
+    logging_cfg(cfg, logger)
+
+    ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
+    class_num = len(eval(cfg.DATASETS).LABEL_MAP)
 
     model = Deeplabv2(dict(
         backbone=dict(
@@ -48,17 +53,17 @@ def main():
         cascade=False,
         use_ppm=True,
         ppm=dict(
-            num_classes=7,
+            num_classes=class_num,
             use_aux=False,
         ),
         inchannels=2048,
-        num_classes=7
+        num_classes=class_num,
+        is_ins_norm=True,
     )).cuda()
-    
-    
-    trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
+    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+    trainloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     trainloader_iter = Iterator(trainloader)
-    evalloader = LoveDALoader(cfg.EVAL_DATA_CONFIG)
+    evalloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
     # targetloader_iter = Iterator(targetloader)
     epochs = cfg.NUM_STEPS_STOP / len(trainloader)
     logger.info('epochs ~= %.3f' % epochs)
@@ -80,7 +85,7 @@ def main():
             pred_s1, pred_s2, _  = model(images_s.cuda())
             # pred_source = pred_source[0] if isinstance(pred_source, tuple) else pred_source
             #Segmentation Loss
-            loss = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
+            loss = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), loss_fn=loss_fn, multi=True)
             # with amp.scale_loss(loss, optimizer) as scaled_loss:
             loss.backward()
             clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()), max_norm=35, norm_type=2)
@@ -139,12 +144,12 @@ def main():
             batch = trainloader_iter.next()
             images_s, labels_s = batch[0]
             pred_s1, pred_s2, _  = model(images_s.cuda())
-            loss_source = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), multi=True)
+            loss_source = loss_calc([pred_s1, pred_s2], labels_s['cls'].cuda(), loss_fn=loss_fn, multi=True)
 
             batch = targetloader_iter.next()
             images_t, labels_t = batch[0]
             pred_t1, pred_t2, _   = model(images_t.cuda())
-            loss_target = loss_calc([pred_t1, pred_t2], labels_t['cls'].cuda(), multi=True)
+            loss_target = loss_calc([pred_t1, pred_t2], labels_t['cls'].cuda(), loss_fn=loss_fn, multi=True)
 
             loss = loss_source * cfg.SOURCE_LOSS_WEIGHT + loss_target * cfg.PSEUDO_LOSS_WEIGHT
             optimizer.zero_grad()

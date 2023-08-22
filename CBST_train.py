@@ -64,6 +64,7 @@ def main():
     trainloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     trainloader_iter = Iterator(trainloader)
     evalloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
+    pseudoloader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
     # targetloader_iter = Iterator(targetloader)
     epochs = cfg.NUM_STEPS_STOP / len(trainloader)
     logger.info('epochs ~= %.3f' % epochs)
@@ -117,7 +118,7 @@ def main():
                 if not os.path.exists(save_pseudo_label_color_path):
                     os.makedirs(save_pseudo_label_color_path)
                 # evaluation & save confidence vectors
-                conf_dict, pred_cls_num, save_prob_path, save_pred_path, image_name_tgt_list = val(model, evalloader, save_round_eval_path, cfg)
+                conf_dict, pred_cls_num, save_prob_path, save_pred_path, image_name_tgt_list = val(model, pseudoloader, save_round_eval_path, cfg)
                 # class-balanced thresholds
                 tgt_portion = min(cfg.TGT_PORTION + cfg.TGT_PORTION_STEP, cfg.MAX_TGT_PORTION)
                 cls_thresh = kc_parameters(conf_dict, pred_cls_num, tgt_portion, i_iter, save_stats_path, cfg, logger)
@@ -128,7 +129,7 @@ def main():
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
                 logger.info(target_config)
-                targetloader = LoveDALoader(target_config)
+                targetloader = DALoader(target_config, cfg.DATASETS)
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
 
@@ -198,7 +199,7 @@ def val(model, targetloader, save_round_eval_path, cfg, slide=True):
     with torch.no_grad():
         for batch in tqdm(targetloader):
             images, labels = batch
-            cls = pre_slide(model, images.cuda(), tta=True) if slide else model(images.cuda())
+            cls = pre_slide(model, images.cuda(), num_classes=cfg.NUM_CLASSES, tta=True) if slide else model(images.cuda())
             output = cls.softmax(dim=1)
             output = output[0] if isinstance(output, tuple) else output
             pred_label = output.argmax(dim=1).cpu().numpy()

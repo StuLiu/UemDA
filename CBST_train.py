@@ -13,9 +13,7 @@ from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 from skimage.io import imsave
-
-# palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
-
+from module.viz import VisualizeSegmm
 
 
 parser = argparse.ArgumentParser(description='Run CBST methods.')
@@ -43,6 +41,7 @@ def main():
     ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
     class_num = len(eval(cfg.DATASETS).LABEL_MAP)
 
+    palette = np.asarray(list(eval(cfg.DATASETS).COLOR_MAP.values())).reshape((-1,)).tolist()
     model = Deeplabv2(dict(
         backbone=dict(
                 resnet_type='resnet50',
@@ -63,7 +62,7 @@ def main():
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
     trainloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     trainloader_iter = Iterator(trainloader)
-    evalloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
+    # evalloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
     pseudoloader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
     # targetloader_iter = Iterator(targetloader)
     epochs = cfg.NUM_STEPS_STOP / len(trainloader)
@@ -124,7 +123,9 @@ def main():
                 cls_thresh = kc_parameters(conf_dict, pred_cls_num, tgt_portion, i_iter, save_stats_path, cfg, logger)
                 print('CLS THRESH', cls_thresh)
                 # pseudo-label maps generation
-                label_selection(cls_thresh, image_name_tgt_list, i_iter, save_prob_path, save_pred_path, save_pseudo_label_path, save_pseudo_label_color_path, save_round_eval_path, logger)
+                label_selection(cls_thresh, image_name_tgt_list, i_iter, save_prob_path, save_pred_path,
+                                save_pseudo_label_path, save_pseudo_label_color_path, save_round_eval_path, logger,
+                                palette, cfg.IGNORE_LABEL_INFILE)
                 ########### model retraining
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
@@ -262,10 +263,10 @@ def kc_parameters(conf_dict, pred_cls_num, tgt_portion, round_idx, save_stats_pa
     logger.info('###### Finish kc generation in round {}! Time cost: {:.2f} seconds. ######'.format(round_idx,time.time() - start_kc))
     return cls_thresh
 
-def label_selection(cls_thresh, image_name_tgt_list, round_idx, save_prob_path, save_pred_path, save_pseudo_label_path, save_pseudo_label_color_path, save_round_eval_path, logger):
+def label_selection(cls_thresh, image_name_tgt_list, round_idx, save_prob_path, save_pred_path, save_pseudo_label_path, save_pseudo_label_color_path, save_round_eval_path, logger, palette, ignore_id_infile=0):
     logger.info('###### Start pseudo-label generation in round {} ! ######'.format(round_idx))
     start_pl = time.time()
-    #viz_op = er.viz.VisualizeSegmm(save_pseudo_label_color_path, palette)
+    viz_op = VisualizeSegmm(save_pseudo_label_color_path, palette)
     for sample_name in image_name_tgt_list:
         probmap_path = osp.join(save_prob_path, '{}.npy'.format(sample_name))
         pred_prob = np.load(probmap_path)
@@ -275,9 +276,9 @@ def label_selection(cls_thresh, image_name_tgt_list, round_idx, save_prob_path, 
         pred_label_trainIDs = weighted_pred_trainIDs.copy()
         pred_label_labelIDs = pred_label_trainIDs + 1
         
-        pred_label_labelIDs[weighted_conf < 1] = 0 # '0' in LoveDA Dataset ignore
+        pred_label_labelIDs[weighted_conf < 1] = ignore_id_infile # '0' in LoveDA Dataset ignore
         # pseudo-labels with labelID
-        #viz_op(pred_label_trainIDs, '%s_color.png' % sample_name)
+        viz_op(pred_label_trainIDs, '%s_color.png' % sample_name)
 
         # save pseudo-label map with label IDs
         imsave(os.path.join(save_pseudo_label_path, '%s.png' % sample_name), pred_label_labelIDs, check_contrast=False)

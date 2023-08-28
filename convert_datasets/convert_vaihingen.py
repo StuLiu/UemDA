@@ -101,11 +101,12 @@ def clip_big_image(image_path, clip_save_dir, to_label=False):
 def main():
     splits = {
         'train': [
-            'area1', 'area11', 'area13', 'area15', 'area17', 'area21',
-            'area23', 'area26', 'area28', 'area3', 'area30', 'area32',
-            'area34', 'area37', 'area5', 'area7'
+            'area1', 'area13', 'area17', 'area21',
+            'area23', 'area26', 'area3', 'area32',
+            'area37', 'area5', 'area7'
         ],
-        'val': [
+        'val': ['area11', 'area15', 'area28', 'area30', 'area34'],
+        'test': [
             'area6', 'area24', 'area35', 'area16', 'area14', 'area22',
             'area10', 'area4', 'area2', 'area20', 'area8', 'area31', 'area33',
             'area27', 'area38', 'area12', 'area29'
@@ -122,8 +123,10 @@ def main():
 
     mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'train'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'val'))
+    mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'test'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'train'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'val'))
+    mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'test'))
 
     zipp_list = glob.glob(os.path.join(dataset_path, '*.zip'))
     print('Find the data', zipp_list)
@@ -145,7 +148,13 @@ def main():
             prog_bar = mmcv.ProgressBar(len(src_path_list))
             for i, src_path in enumerate(src_path_list):
                 area_idx = osp.basename(src_path).split('_')[3].strip('.tif')
-                data_type = 'train' if area_idx in splits['train'] else 'val'
+                # data_type = 'train' if area_idx in splits['train'] else 'val'
+                if area_idx in splits['train']:
+                    data_type = 'train'
+                elif area_idx in splits['val']:
+                    data_type = 'val'
+                else:
+                    data_type = 'test'
 
                 if 'top/' not in src_path:
                     dst_dir = osp.join(out_dir, 'ann_dir', data_type)

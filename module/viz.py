@@ -53,8 +53,10 @@ if __name__ == '__main__':
 
     vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
     vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Potsdam/ann_dir/test', palette=IsprsDA.PALETTE, offset=0)
     vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/train', palette=IsprsDA.PALETTE, offset=0)
     vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/val', palette=IsprsDA.PALETTE, offset=0)
+    vis_dir(input_dir='../data/IsprsDA/Vaihingen/ann_dir/test', palette=IsprsDA.PALETTE, offset=0)
 
 
 # Generate datasets

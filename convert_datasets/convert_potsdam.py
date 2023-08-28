@@ -109,11 +109,14 @@ def main():
     args = parse_args()
     splits = {
         'train': [
-            '2_10', '2_11', '2_12', '3_10', '3_11', '3_12', '4_10', '4_11', '4_12',
-            '5_10', '5_11', '5_12', '6_10', '6_11', '6_12', '6_7',
-            '6_8', '6_9', '7_10', '7_11', '7_12', '7_7', '7_8', '7_9'
+            '2_10', '3_10', '3_11', '3_12', '4_11', '4_12',
+            '5_10', '5_12', '6_10', '6_11', '6_12',
+            '6_8', '6_9', '7_11', '7_12', '7_7',  '7_9'
         ],
-        'val': [
+        'val':[
+            '2_11', '2_12', '4_10', '5_11', '6_7', '7_10', '7_8'
+        ],
+        'test': [
             '5_15', '6_15', '6_13', '3_13', '4_14', '6_14', '5_14', '2_13',
             '4_15', '2_14', '5_13', '4_13', '3_14', '7_13'
         ]
@@ -128,8 +131,10 @@ def main():
     print('Making directories...')
     mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'train'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'val'))
+    mmcv.mkdir_or_exist(osp.join(out_dir, 'img_dir', 'test'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'train'))
     mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'val'))
+    mmcv.mkdir_or_exist(osp.join(out_dir, 'ann_dir', 'test'))
 
     zipp_list = glob.glob(os.path.join(dataset_path, '*.zip'))
     zipp_list.sort(reverse=True)
@@ -150,8 +155,12 @@ def main():
                 if f'{idx_i}_{idx_j}' in ['6_7', '4_12',]:
                     print(f'{idx_i}_{idx_j} remove')
                     continue
-                data_type = 'train' if f'{idx_i}_{idx_j}' in splits[
-                    'train'] else 'val'
+                if f'{idx_i}_{idx_j}' in splits['train']:
+                    data_type = 'train'
+                elif f'{idx_i}_{idx_j}' in splits['val']:
+                    data_type = 'val'
+                else:
+                    data_type = 'test'
                 if 'label' in src_path:
                     dst_dir = osp.join(out_dir, 'ann_dir', data_type)
                     clip_big_image(src_path, dst_dir, args, to_label=True)

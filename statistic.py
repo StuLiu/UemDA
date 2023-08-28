@@ -23,8 +23,8 @@ dataset_paths = [
 ]
 
 # 初始化均值和方差
-mean_values = 0
-variance_values = 0
+mean_values = np.zeros((3,))
+variance_values = np.zeros((3,))
 
 # 遍历数据集中的图像
 for dataset_path in dataset_paths:
@@ -34,19 +34,22 @@ for dataset_path in dataset_paths:
             image_path = os.path.join(root, file)
 
             # 读取图像
-            image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
             # 转换为浮点数
             image = image.astype(np.float32)
 
             # 计算均值和方差
-            mean = np.mean(image)
-            variance = np.var(image)
+            mean = np.zeros((image.shape[-1],))
+            variance = np.zeros((image.shape[-1],))
+            for i in range(image.shape[-1]):
+                mean[i] = np.mean(image[i, :, :])
+                variance[i] = np.std(image[i, :, :])
 
             # update statistics
             mean_values = ema_static(mean_values, mean)
             variance_values = ema_static(variance_values, variance)
 
-# 计算整个数据集的均值和方差
-print("Dataset Mean:", dataset_mean)
-print("Dataset Variance:", dataset_variance)
+    # 计算整个数据集的均值和方差
+    print("Dataset Mean:", mean_values)
+    print("Dataset Variance:", variance_values)

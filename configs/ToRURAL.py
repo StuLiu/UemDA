@@ -48,8 +48,8 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661,  35.66528876, 33.75830885),
+        Normalize(mean=(86.33139106, 86.42503241, 86.48510096),
+                  std=(28.31421307, 28.35913085, 28.41702921),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
 
@@ -71,8 +71,8 @@ TARGET_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661,  35.66528876, 33.75830885),
+        Normalize(mean=(92.36257614, 92.42804661, 92.44088941),
+                  std=(44.58176958, 44.5633478, 44.68216329),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -86,8 +86,8 @@ PSEUDO_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
     mask_dir=target_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(92.36257614, 92.42804661, 92.44088941),
+                  std=(44.58176958, 44.5633478, 44.68216329),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
 
@@ -102,8 +102,8 @@ EVAL_DATA_CONFIG = dict(
     image_dir=val_dir['image_dir'],
     mask_dir=val_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(92.36257614, 92.42804661, 92.44088941),
+                  std=(44.58176958, 44.5633478, 44.68216329),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
 
@@ -118,8 +118,8 @@ TEST_DATA_CONFIG = dict(
     image_dir=test_dir['image_dir'],
     mask_dir=test_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(73.53223948, 80.01710095, 74.59297778),
-                  std=(41.5113661, 35.66528876, 33.75830885),
+        Normalize(mean=(92.36257614, 92.42804661, 92.44088941),
+                  std=(44.58176958, 44.5633478, 44.68216329),
                   max_pixel_value=1, always_apply=True),
         # Normalize(mean=(123.675, 116.28, 103.53),
         #           std=(58.395, 57.12, 57.375),

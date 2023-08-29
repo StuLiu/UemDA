@@ -2,7 +2,7 @@ from configs.ToVaihingen import *
 import module.aug.augmentation as mag
 
 
-MODEL = 'ResNet101'
+MODEL = 'ResNet'
 
 
 IGNORE_LABEL = -1

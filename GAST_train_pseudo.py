@@ -70,11 +70,15 @@ def main():
 
     ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
     class_num = len(eval(cfg.DATASETS).LABEL_MAP)
+    model_name = str(cfg.MODEL).lower()
+    if model_name == 'resnet':
+        model_name = 'resnet50'
+    logger.info(model_name)
 
     cudnn.enabled = True
     model = Deeplabv2(dict(
         backbone=dict(
-            resnet_type='resnet50',
+            resnet_type=model_name,
             output_stride=16,
             pretrained=True,
         ),

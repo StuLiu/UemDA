@@ -1,3 +1,5 @@
+import os
+
 from module.datasets.daLoader import DALoader
 import logging
 logger = logging.getLogger(__name__)
@@ -9,16 +11,13 @@ from module.datasets import *
 from module.gast.metrics import PixelMetricIgnore
 
 
-def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, tta=False):
-    #torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
-    #torch.backends.cudnn.enabled = False
+def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=True, tta=False, test=False):
     ignore_labels = []
     if cfg.DATASETS == 'IsprsDA':
         ignore_labels = [0]
-    if cfg.SNAPSHOT_DIR is not None:
-        vis_dir = os.path.join(cfg.SNAPSHOT_DIR, 'vis-{}'.format(os.path.basename(ckpt_path)))
-        viz_op = VisualizeSegmm(vis_dir, eval(cfg.DATASETS).PALETTE)
+    os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
+    vis_dir = os.path.join(cfg.SNAPSHOT_DIR, 'vis-{}'.format(os.path.basename(ckpt_path)))
+    viz_op = VisualizeSegmm(vis_dir, eval(cfg.DATASETS).PALETTE)
     if not is_training:
         model_state_dict = torch.load(ckpt_path)
         model.load_state_dict(model_state_dict,  strict=True)
@@ -49,7 +48,11 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     # metric_op.summary_all()
     # torch.cuda.empty_cache()
 
-    eval_dataloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
+    if test:
+        eval_dataloader = DALoader(cfg.TEST_DATA_CONFIG, cfg.DATASETS)
+    else:
+        eval_dataloader = DALoader(cfg.EVAL_DATA_CONFIG, cfg.DATASETS)
+
     class_names = eval(cfg.DATASETS).COLOR_MAP.keys()
     metric_op = PixelMetricIgnore(len(class_names), class_names=list(class_names),
                                   logdir=cfg.SNAPSHOT_DIR, logger=logger,
@@ -75,7 +78,6 @@ def evaluate(model, cfg, is_training=False, ckpt_path=None, logger=None, slide=T
     torch.cuda.empty_cache()
 
 
-
 if __name__ == '__main__':
     seed_torch(2333)
 
@@ -92,9 +94,16 @@ if __name__ == '__main__':
     log_dir = os.path.dirname(args.ckpt_path)
     cfg.SNAPSHOT_DIR = log_dir
     logger = get_console_file_logger(name='Baseline', logdir=log_dir)
+
+    class_num = len(eval(cfg.DATASETS).LABEL_MAP)
+    model_name = str(cfg.MODEL).lower()
+    if model_name == 'resnet':
+        model_name = 'resnet50'
+    logger.info(model_name)
+
     model = Deeplabv2(dict(
         backbone=dict(
-            resnet_type='resnet50',
+            resnet_type=model_name,
             output_stride=16,
             pretrained=True,
         ),
@@ -102,11 +111,11 @@ if __name__ == '__main__':
         cascade=False,
         use_ppm=True,
         ppm=dict(
-            num_classes=7,
+            num_classes=class_num,
             use_aux=False,
         ),
         inchannels=2048,
-        num_classes=7,
+        num_classes=class_num,
         is_ins_norm=args.ins_norm
     )).cuda()
-    evaluate(model, cfg, False, args.ckpt_path, logger, tta=args.tta)
+    evaluate(model, cfg, False, args.ckpt_path, logger, tta=args.tta, test=True)

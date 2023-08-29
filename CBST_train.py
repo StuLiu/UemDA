@@ -100,12 +100,12 @@ def main():
                 print('save model ...')
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
+                evaluate(model, cfg, True, ckpt_path, logger, slide=False)
                 break
             if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
+                evaluate(model, cfg, True, ckpt_path, logger, slide=False)
                 model.train()
         else:
             if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
@@ -168,16 +168,16 @@ def main():
                 print('save model ...')
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
+                evaluate(model, cfg, True, ckpt_path, logger, slide=False)
                 break
             if i_iter % cfg.EVAL_EVERY == 0 and i_iter != 0:
                 ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter) + '.pth')
                 torch.save(model.state_dict(), ckpt_path)
-                evaluate(model, cfg, True, ckpt_path, logger)
+                evaluate(model, cfg, True, ckpt_path, logger, slide=False)
                 model.train()
 
 
-def val(model, targetloader, save_round_eval_path, cfg, slide=True):
+def val(model, targetloader, save_round_eval_path, cfg):
     """Create the model and start the evaluation process."""
 
     model.eval()
@@ -200,7 +200,7 @@ def val(model, targetloader, save_round_eval_path, cfg, slide=True):
     with torch.no_grad():
         for batch in tqdm(targetloader):
             images, labels = batch
-            cls = pre_slide(model, images.cuda(), num_classes=cfg.NUM_CLASSES, tta=True) if slide else model(images.cuda())
+            cls = model(images.cuda())
             output = cls.softmax(dim=1)
             output = output[0] if isinstance(output, tuple) else output
             pred_label = output.argmax(dim=1).cpu().numpy()

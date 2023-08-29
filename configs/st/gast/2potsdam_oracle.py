@@ -2,7 +2,7 @@ from configs.ToPotsdam import *
 import module.aug.augmentation as mag
 
 
-MODEL = 'ResNet'
+MODEL = 'ResNet101'
 
 
 IGNORE_LABEL = -1

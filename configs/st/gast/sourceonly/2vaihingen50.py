@@ -1,8 +1,9 @@
-from configs.ToVaihingen import *
+from configs.ToVaihingen import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
+    PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir, DATASETS
 import module.aug.augmentation as mag
 
 
-MODEL = 'ResNet101'
+MODEL = 'ResNet'
 
 
 IGNORE_LABEL = -1
@@ -29,36 +30,29 @@ CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
 
 TARGET_SET = TARGET_SET
-# SOURCE_DATA_CONFIG = SOURCE_DATA_CONFIG
+SOURCE_DATA_CONFIG = SOURCE_DATA_CONFIG
 PSEUDO_DATA_CONFIG = PSEUDO_DATA_CONFIG
 EVAL_DATA_CONFIG = EVAL_DATA_CONFIG
 TEST_DATA_CONFIG = TEST_DATA_CONFIG
 
-source_dir = dict(
-    image_dir=[
-        'data/IsprsDA/Vaihingen/img_dir/train',
-    ],
-    mask_dir=[
-        'data/IsprsDA/Vaihingen/ann_dir/train',
-    ],
-)
-SOURCE_DATA_CONFIG = dict(
-    image_dir=source_dir['image_dir'],
-    mask_dir=source_dir['mask_dir'],
-    transforms=Compose([
-        RandomCrop(512, 512),
-        OneOf([
-            HorizontalFlip(True),
-            VerticalFlip(True),
-            RandomRotate90(True)
-        ], p=0.75),
-        Normalize(mean=(123.675, 116.28, 103.53),
-                  std=(58.395, 57.12, 57.375),
-                  max_pixel_value=1, always_apply=True),
-        er.preprocess.albu.ToTensor()
+
+TARGET_DATA_CONFIG = dict(
+    image_dir=target_dir['image_dir'],
+    mask_dir=[None],
+    transforms=mag.Compose([
+        mag.RandomCrop((512, 512)),
+        mag.RandomHorizontalFlip(0.5),
+        mag.RandomVerticalFlip(0.5),
+        mag.RandomRotate90(0.5),
+        mag.Normalize(
+            mean=(123.675, 116.28, 103.53),
+            std=(58.395, 57.12, 57.375)
+        ),
     ]),
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
+    pin_memory=True,
+    label_type='prob',
 )

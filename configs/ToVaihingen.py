@@ -31,10 +31,10 @@ val_dir = dict(
 )
 test_dir = dict(
     image_dir=[
-        'data/IsprsDA/Vaihingen/img_dir/val'
+        'data/IsprsDA/Vaihingen/img_dir/test'
     ],
     mask_dir=[
-        None
+        'data/IsprsDA/Vaihingen/ann_dir/test'
     ],
 )
 

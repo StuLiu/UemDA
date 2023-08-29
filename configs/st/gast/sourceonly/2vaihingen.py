@@ -3,7 +3,7 @@ from configs.ToVaihingen import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
 import module.aug.augmentation as mag
 
 
-MODEL = 'ResNet'
+MODEL = 'ResNet101'
 
 
 IGNORE_LABEL = -1

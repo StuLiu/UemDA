@@ -7,7 +7,7 @@ MOMENTUM = 0.9
 NUM_CLASSES = 7
 
 SAVE_PRED_EVERY = 2000
-SNAPSHOT_DIR = './new_log813/iast/warm8k/2rural'
+SNAPSHOT_DIR = './log/iast/2rural'
 
 
 #Hyper Paramters

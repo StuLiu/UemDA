@@ -17,9 +17,14 @@ def ema_static(history, curr, gama=0.99):
 
 
 # 数据集路径
+# dataset_paths = [
+#     'data/IsprsDA/Potsdam/img_dir',
+#     'data/IsprsDA/Vaihingen/img_dir',
+# ]
+
 dataset_paths = [
-    'data/IsprsDA/Potsdam/img_dir',
-    'data/IsprsDA/Vaihingen/img_dir',
+    'data/LoveDA/Train/Urban/images_png',
+    'data/LoveDA/Train/Rural/images_png',
 ]
 
 # 初始化均值和方差

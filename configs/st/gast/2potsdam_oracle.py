@@ -53,8 +53,8 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(100.3855, 85.8122, 91.0087),
-                  std=(39.7718, 36.2300, 35.8611),
+        Normalize(mean=(123.675, 116.28, 103.53),
+                  std=(58.395, 57.12, 57.375),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),

@@ -40,12 +40,14 @@ parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='c
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 
 parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
-parser.add_argument('--refine-mode', type=str, default='all', help='whether refine the pseudo label')
+parser.add_argument('--refine-mode', type=str, default='all',
+                    choices=['p', 'l', 'all'], help='refine by prototype, label, or both')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 
-parser.add_argument('--balance-type', type=str, default='gdp', help='focal, ohem, ghm, or ours')
+parser.add_argument('--balance-type', type=str, default='gdp',
+                    choices=['none', 'focal', 'ghm', 'gdp', 'our'], help='focal, ohem, ghm, or ours')
 parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class')
-parser.add_argument('--balance-pt', type=str2bool, default=0, help='whether re-weight by prototypes')
+parser.add_argument('--balance-pt', type=str2bool, default=1, help='whether re-weight by prototypes')
 parser.add_argument('--class-temp', type=float, default=0.5, help='smooth factor')
 
 parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')

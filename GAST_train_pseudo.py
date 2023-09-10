@@ -103,8 +103,9 @@ def main():
 
     if args.balance_type in ['ours', 'gdp']:
         logger.info('>>>>>>> using ours/gdp loss.')
-        loss_fn_s = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
-                            class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
+        # loss_fn_s = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
+        #                     class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
+        loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
         loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
                             class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
     elif args.balance_type == 'focal':
@@ -238,6 +239,7 @@ def main():
                 if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
                     loss_fn_s.set_prototype_weight_4pixel(
                         aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
+                if isinstance(loss_fn_t, GDPLoss) and args.balance_pt:
                     loss_fn_t.set_prototype_weight_4pixel(
                         aligner.get_prototype_weight_4pixel(feat_t, label_t_hard, args.refine_temp))
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
@@ -266,7 +268,8 @@ def main():
                 logger.info(f'source domain: {loss_fn_s}')
                 logger.info(f'target domain: {loss_fn_t}')
             elif args.balance_type in ['ghm', 'gdp', 'ours']:
-                logger.info(f'source domain: {loss_fn_s.get_g_distribution()}')
+                if isinstance(loss_fn_s, GDPLoss):
+                    logger.info(f'source domain: {loss_fn_s.get_g_distribution()}')
                 logger.info(f'target domain: {loss_fn_t.get_g_distribution()}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')

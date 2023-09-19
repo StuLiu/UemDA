@@ -41,7 +41,7 @@ parser.add_argument('--align-domain', type=str2bool, default=0, help='whether al
 
 parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
 parser.add_argument('--refine-mode', type=str, default='all',
-                    choices=['p', 'l', 'all'], help='refine by prototype, label, or both')
+                    choices=['p', 'n', 'l', 'all'], help='refine by prototype, label, or both')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 
 parser.add_argument('--balance-type', type=str, default='gdp',

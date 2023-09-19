@@ -180,15 +180,21 @@ class Aligner:
             if mode in ['all', 'l']:
                 if isinstance(preds_t, list):
                     assert len(preds_t) == 2
-                    x1 = self._softmax_T(preds_t[0], temp)
-                    x2 = self._softmax_T(preds_t[1], temp)    # (b, c, h, w)
-                    x1 = tnf.interpolate(x1, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    x2 = tnf.interpolate(x2, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    weight += (x1 + x2).detach() * 0.5
+                    x1 = tnf.interpolate(preds_t[0], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    weight += (self._softmax_T(x1, temp=temp, dim=1) +
+                               self._softmax_T(x2, temp=temp, dim=1)).detach() * 0.5
+                    # x1 = self._softmax_T(preds_t[0], temp)
+                    # x2 = self._softmax_T(preds_t[1], temp)    # (b, c, h, w)
+                    # x1 = tnf.interpolate(x1, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    # x2 = tnf.interpolate(x2, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    # weight += (x1 + x2).detach() * 0.5
                 else:
-                    x = self._softmax_T(preds_t, temp)                                    # (b, c, h, w)
-                    x = tnf.interpolate(x, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    weight += x.detach()
+                    x = tnf.interpolate(preds_t, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    weight += self._softmax_T(x, temp=temp, dim=1).detach()
+                    # x = self._softmax_T(preds_t, temp)                                    # (b, c, h, w)
+                    # x = tnf.interpolate(x, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    # weight += x.detach()
                 cnt_views += 1
 
             weight /= cnt_views

@@ -113,7 +113,7 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
-    def label_refine(self, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0, topk=8):
+    def label_refine(self, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0, topk=16):
         """Refine the pseudo label online by the distances between features and prototypes.
         Args:
             feat_t: Tensor, feature map, (b, k, h, w)
@@ -138,7 +138,7 @@ class Aligner:
                 simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
                 simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
                                               mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-                weight += self._softmax_T(simi_matrix.detach(), temp=temp, dim=1)            # (b, c, h, w)
+                weight += self._softmax_T(simi_matrix, temp=1, dim=1).detach()      # (b, c, 32*h, 32*w)
                 cnt_views += 1
 
             if mode in ['all', 'n']:
@@ -147,14 +147,14 @@ class Aligner:
                 _, topK_idx = torch.topk(simi_matrix.detach(), k=topk, dim=-1)              # (b*h*w, topk)
                 # get class ratio in topk examples
                 label_t_soft_down = tnf.interpolate(label_t_soft, (h, w), mode='bilinear', align_corners=True)
-                label_t_hard = torch.argmax(label_t_soft_down, dim=1)                            # (b, h, w)
+                label_t_hard = torch.argmax(label_t_soft_down, dim=1)                       # (b, h, w)
                 label_repeat = label_t_hard.reshape(-1, 1).repeat(1, topk)          # (b*h*w, topk)
                 topK_class = torch.gather(label_repeat, 0, topK_idx)                   # (b*h*w, topk)
                 topK_class_onehot = tnf.one_hot(topK_class, num_classes=self.class_num)     # (b*h*w, topk, c)
                 topK_class_num = torch.sum(topK_class_onehot, dim=1)                        # (b*h*w, c)
                 topK_class_ratio = topK_class_num / (torch.sum(topK_class_num, dim=-1, keepdim=True) + 1e-7)    # (b*h*w, c)
                 # comput weight
-                topK_class_weight = self._softmax_T(topK_class_ratio, temp=temp, dim=-1)
+                topK_class_weight = self._softmax_T(topK_class_ratio, temp=0.1, dim=-1)
                 topK_class_ratio_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
                 topK_class_weight = topK_class_weight / (1e-7 + topK_class_ratio_max)        # (b*h*w, c)
                 topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)      # (b, c, h, w)
@@ -215,7 +215,7 @@ class Aligner:
         simi_matrix = tnf.interpolate(simi_matrix, label_hard.shape[-2:],
                                       mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
         # simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 32*h, 32*w)
-        simi_matrix = self._softmax_T(simi_matrix, temp=temp, dim=1)      # (b, c, 32*h, 32*w)
+        simi_matrix = self._softmax_T(simi_matrix, temp=1, dim=1)      # (b, c, 32*h, 32*w)
         max_v, _ = torch.max(simi_matrix, dim=1, keepdim=True)
         simi_matrix = simi_matrix / (max_v + self.eps)
         label_onehot = self._index2onehot(label_hard).reshape(b, h2, w2, -1).permute(0, 3, 1, 2)   # (b, c, 32*h, 32*w)

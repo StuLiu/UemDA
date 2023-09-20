@@ -154,26 +154,12 @@ class Aligner:
                 topK_class_num = torch.sum(topK_class_onehot, dim=1)                        # (b*h*w, c)
                 topK_class_ratio = topK_class_num / (torch.sum(topK_class_num, dim=-1, keepdim=True) + 1e-7)    # (b*h*w, c)
                 # comput weight
-                topK_class_weight = self._softmax_T(topK_class_ratio, temp=0.1, dim=-1)
+                topK_class_weight = self._softmax_T(topK_class_ratio, temp=temp, dim=-1)
                 topK_class_ratio_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
                 topK_class_weight = topK_class_weight / (1e-7 + topK_class_ratio_max)        # (b*h*w, c)
                 topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)      # (b, c, h, w)
                 topK_class_weight = tnf.interpolate(topK_class_weight, label_t_soft.shape[-2:],
                                                     mode='bilinear', align_corners=True)    # (b, c, 32*h, 32*w)
-                # # get class ratio within the mini-batch
-                # label_onehot = tnf.one_hot(label_t_hard.reshape(-1), num_classes=self.class_num)    # (b*h*w, c)
-                # label_num = torch.sum(label_onehot, dim=0, keepdim=True)                            # (1, c)
-                # label_ratio = label_num / (torch.sum(label_num, dim=-1, keepdim=True) + 1e-7)       # (1, c)
-                # # compute weight
-                # label_ratio_condi = (label_ratio != 0)      # (1, c)
-                # # topK_class_weight = self._softmax_T(topK_class_ratio / (label_ratio + 1e-7), temp=temp, dim=1) # (b*h*w, c)
-                # topK_class_weight = self._softmax_T(topK_class_ratio, temp=temp, dim=1)
-                # topK_class_weight = topK_class_weight * label_ratio_condi
-                # topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)
-                # topK_class_weight = tnf.interpolate(topK_class_weight, label_t_soft.shape[-2:],
-                #                                     mode='bilinear', align_corners=True)    # (b, c, 32*h, 32*w)
-                # topK_class_weight_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
-                # topK_class_weight = topK_class_weight / (topK_class_weight_max + 1e-7)
                 weight += topK_class_weight.detach()
                 cnt_views += 1
 
@@ -184,17 +170,9 @@ class Aligner:
                     x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
                     weight += (self._softmax_T(x1, temp=temp, dim=1) +
                                self._softmax_T(x2, temp=temp, dim=1)).detach() * 0.5
-                    # x1 = self._softmax_T(preds_t[0], temp)
-                    # x2 = self._softmax_T(preds_t[1], temp)    # (b, c, h, w)
-                    # x1 = tnf.interpolate(x1, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    # x2 = tnf.interpolate(x2, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    # weight += (x1 + x2).detach() * 0.5
                 else:
                     x = tnf.interpolate(preds_t, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
                     weight += self._softmax_T(x, temp=temp, dim=1).detach()
-                    # x = self._softmax_T(preds_t, temp)                                    # (b, c, h, w)
-                    # x = tnf.interpolate(x, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    # weight += x.detach()
                 cnt_views += 1
 
             weight /= cnt_views

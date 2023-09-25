@@ -228,12 +228,13 @@ def main():
                 label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft,
                                                     refine=args.refine_label,
                                                     mode=args.refine_mode,
-                                                    temp=args.refine_temp)
+                                                    temp=args.refine_temp,
+                                                    n_start=(i_iter >= cfg.N_START))
                 label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
                                                 return_type='tensor', ignore_label=ignore_label)
-                # logger.info(np.unique(label_t_hard.cpu().numpy()))
-                # aligner.update_prototype(feat_s, label_s)
-                aligner.update_prototype(feat_t, label_t_hard)
+
+                # aligner.update_prototype(feat_t, label_t_hard)
+                aligner.update_prototype_bytarget(feat_t, label_t_soft)
 
                 # loss
                 if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:

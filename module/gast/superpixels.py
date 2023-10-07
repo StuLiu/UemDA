@@ -82,11 +82,13 @@ class SuperPixelsLSC(object):
 
         return number_supixl, label_supixl, color_img
 
+
 def get_superpixels(dir_path, out_dir, postfix='png', show=False):
     """
     Get superpixel labels and visualizations
     Args:
         dir_path: dir path to target training images
+        out_dir
         postfix: 'png'
         show: Boolean, vis window if True
     Returns:
@@ -106,7 +108,9 @@ def get_superpixels(dir_path, out_dir, postfix='png', show=False):
         #             label_supixl.astype(np.uint16))
         iio.imsave(os.path.join(out_dir, str(os.path.basename(img_path)).replace(f'.{postfix}', '.tif')),
                    label_supixl)
-        # label_supixl_ = iio.imread(os.path.join(out_dir, str(os.path.basename(img_path)).replace(f'.{postfix}', '.tif')))
+        # label_supixl_ = iio.imread(
+        #     os.path.join(out_dir, str(os.path.basename(img_path)).replace(f'.{postfix}', '.tif'))
+        # )
         cv2.imwrite(os.path.join(out_dir + "_vis", os.path.basename(img_path)), color_img)
 
         if show:

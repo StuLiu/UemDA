@@ -151,25 +151,22 @@ def analysis_pseudo_labels(label_dir='data/IsprsDA/Vaihingen/ann_dir/train',
             cnt_used_list[i] = cnt_used_list[i] + cnt_used
             cnt_true_list[i] = cnt_true_list[i] + cnt_true
             acc_list[i] =  acc_list[i] + acc_local
-    # cnt_true_list = cnt_true_list / len(labels)
-    # cnt_used_list = cnt_used_list / len(labels)
+
     acc_list = acc_list / len(labels)
     x = [(1.0 * i / range_cnt) for i in range(range_cnt)]
     print(cnt_true_list)
     print(cnt_used_list)
-    # print(cnt_used_list - cnt_true_list)
-    print(1.0 * cnt_true_list / (1e-7 + cnt_used_list))
     print(acc_list)
-    # cnt_true_list = np.where(cnt_true_list > 1, np.log10(cnt_true_list), 0)
-    # cnt_used_list = np.where(cnt_used_list > 1, np.log10(cnt_used_list), 0)
+    cnt_true_list = np.where(cnt_true_list > 1, np.log10(cnt_true_list), 0)
+    cnt_used_list = np.where(cnt_used_list > 1, np.log10(cnt_used_list), 0)
     plot_noise_rate(x, cnt_true_list, cnt_used_list, acc_list)
 
 
 def range_static(gradient, pseudo, gt, v_fr=0.0, v_to=1.0, n_classes=6):
     pseudo_range = pseudo.detach().clone()
     pseudo_range[(gradient < v_fr) | (gradient >= v_to)] = n_classes
-    cnt_used = torch.sum(pseudo_range != n_classes)
     cnt_true = torch.sum(pseudo_range == gt)
+    cnt_used = torch.sum(pseudo_range != n_classes)
     # print(cnt_used, cnt_true)
     return cnt_true, cnt_used, 1.0 * cnt_true / (cnt_used + 1e-7)
 
@@ -204,7 +201,7 @@ def plot_noise_rate(x, y1, y2, acc_list):
 
 if __name__ == "__main__":
     analysis_pseudo_labels(label_dir='data/IsprsDA/Vaihingen/ann_dir/train',
-                           pseudo_dir='log/GAST/2vaihingen20230910153121/pseudo_label',
+                           pseudo_dir='log/GAST/2vaihingen20230911191328/pseudo_label',
                            ignore_label=-1, n_classes=6)
 
     # analysis_pseudo_labels(label_dir='data/IsprsDA/Potsdam/ann_dir/train',

@@ -40,6 +40,7 @@ class LoveDA(BaseData):
     SIZE = (1024, 1024)
     IGNORE_LABEL = -1
 
-    def __init__(self, image_dir, mask_dir, transforms=None, label_type='id'):
+    def __init__(self, image_dir, mask_dir, transforms=None, label_type='id', read_sup=False):
         super().__init__(image_dir, mask_dir, transforms, label_type,
-                         offset=-1, ignore_label=self.IGNORE_LABEL, num_class=len(self.LABEL_MAP))
+                         offset=-1, ignore_label=self.IGNORE_LABEL, num_class=len(self.LABEL_MAP),
+                         read_sup=read_sup)

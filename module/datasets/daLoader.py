@@ -32,7 +32,8 @@ class DALoader(DataLoader, ConfigurableMixin):
         dataset = eval(datasets)(image_dir=self.config.image_dir,
                                  mask_dir=self.config.mask_dir,
                                  transforms=self.config.transforms,
-                                 label_type=self.config.label_type)
+                                 label_type=self.config.label_type,
+                                 read_sup=self.config.read_sup)
 
         if self.config.CV.i != -1:
             CV = CrossValSamplerGenerator(dataset, distributed=True, seed=2333)
@@ -72,4 +73,5 @@ class DALoader(DataLoader, ConfigurableMixin):
                 ToTensorV2()
             ]),
             label_type='id',
+            read_sup=False,
         ))

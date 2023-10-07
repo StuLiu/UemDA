@@ -41,7 +41,7 @@ parser.add_argument('--align-domain', type=str2bool, default=0, help='whether al
 
 parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
 parser.add_argument('--refine-mode', type=str, default='all',
-                    choices=['p', 'n', 'l', 'all'], help='refine by prototype, label, or both')
+                    choices=['s', 'p', 'n', 'l', 'all'], help='refine by prototype, label, or both')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 
 parser.add_argument('--balance-type', type=str, default='gdp',
@@ -216,8 +216,8 @@ def main():
                 images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
                 # target output
                 batch_t = targetloader_iter.next()
-                images_t, label_t_soft = batch_t[0]
-                images_t, label_t_soft = images_t.cuda(), label_t_soft['cls'].cuda()
+                images_t, label_t = batch_t[0]
+                images_t, label_t_soft, label_t_sup = images_t.cuda(), label_t['cls'].cuda(), label_t['sup'].cuda()
 
                 # model forward
                 # source
@@ -225,16 +225,16 @@ def main():
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
 
-                label_t_soft = aligner.label_refine(feat_t, [pred_t1, pred_t2], label_t_soft,
+
+                label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
                                                     refine=args.refine_label,
                                                     mode=args.refine_mode,
-                                                    temp=args.refine_temp,
-                                                    n_start=(i_iter >= cfg.N_START))
+                                                    temp=args.refine_temp)
                 label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
                                                 return_type='tensor', ignore_label=ignore_label)
 
-                # aligner.update_prototype(feat_t, label_t_hard)
-                aligner.update_prototype_bytarget(feat_t, label_t_soft)
+                aligner.update_prototype(feat_t, label_t_hard)
+                # aligner.update_prototype_bytarget(feat_t, label_t_soft)
 
                 # loss
                 if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:

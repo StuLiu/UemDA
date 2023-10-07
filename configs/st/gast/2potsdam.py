@@ -17,18 +17,13 @@ LEARNING_RATE = 1e-2
 NUM_STEPS = 7500            # for learning rate poly
 NUM_STEPS_STOP = 5000       # Use damping instead of early stopping
 FIRST_STAGE_STEP = 2000     # for first stage
-N_START = 3000              # when using knn
 PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
 POWER = 0.9                 # lr poly power
 EVAL_FROM = 0               # int(NUM_STEPS_STOP * 0.6) - 1
 EVAL_EVERY = 500
 GENERATE_PSEDO_EVERY = 500
-MULTI_LAYER = True
-IGNORE_BG = True
-PSEUDO_SELECT = True
 CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
-
 
 TARGET_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
@@ -49,4 +44,5 @@ TARGET_DATA_CONFIG = dict(
     num_workers=8,
     pin_memory=True,
     label_type='prob',
+    read_sup=True,
 )

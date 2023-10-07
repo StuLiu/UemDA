@@ -6,16 +6,19 @@
 @Date    : 2023/3/13 下午9:43
 @e-mail  : 1183862787@qq.com
 """
-
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as tnf
+from torch_scatter import scatter
 from module.gast.class_ware_whiten import ClassWareWhitening
 from module.gast.coral import CoralLoss
 from module.gast.pseudo_generation import pseudo_selection
+# from module.gast.superpixels import SuperPixelsModel
+
+
 # from audtorch.metrics.functional import pearsonr
 # from module.gast.mmd import MMDLoss
-import math
 
 
 class Aligner:
@@ -61,6 +64,9 @@ class Aligner:
         # criterion for feature whitening
         self.whitener = ClassWareWhitening(class_ids=range(class_num), groups=32)  # self.feat_channels // 8)
 
+        # superpixel model
+        # self.sp_model = SuperPixelsModel(model_type='LSC')
+
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
@@ -70,7 +76,7 @@ class Aligner:
 
     def update_prototype(self, feat, label):
         """Update global prototypes by source features and labels."""
-        label = self.downscale_gt(label)  # (b, 32*h, 32*w) -> (b, 1, h, w)
+        label = self.downscale_gt(label)  # (b, 16*h, 16*w) -> (b, 1, h, w)
         self._compute_local_prototypes(feat, label, update=True, decay=self.decay)
 
     def update_prototype_bytarget(self, feat_t, label_t_soft):
@@ -82,10 +88,10 @@ class Aligner:
         b, k, h, w = feat_t.shape
         c = label_t_soft.shape[1]
         feat_t_flatten = feat_t.permute(0, 2, 3, 1).reshape(-1, 1, k)
-        # (b, c, 32*h, 32*w) -> (b, c, h, w)
+        # (b, c, 16*h, 16*w) -> (b, c, h, w)
         label_t_soft_down = tnf.interpolate(label_t_soft, size=(h, w), mode='bilinear', align_corners=True)
         label_t_soft_down = label_t_soft_down.permute(0, 2, 3, 1).reshape(-1, c, 1)
-        local_prototype = torch.mean(feat_t_flatten * label_t_soft_down, dim=0)     # (c, k)
+        local_prototype = torch.mean(feat_t_flatten * label_t_soft_down, dim=0)  # (c, k)
         self.prototypes = self._ema(self.prototypes, local_prototype, self.decay).detach()
 
     def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
@@ -93,15 +99,15 @@ class Aligner:
             Besides, update the shared prototypes by the local prototypes of source and target domain.
         Args:
             feat_s:  features from source, shape as (b, k, h, w)
-            label_s: labels from source  , shape as (b, 32*h, 32*w)
+            label_s: labels from source  , shape as (b, 16*h, 16*w)
             feat_t:  features from source, shape as (b, k, h, w)
-            label_t: pseudo label, Tensor, shape as (b, 32*h, 32*w)
+            label_t: pseudo label, Tensor, shape as (b, 16*h, 16*w)
         Returns:
             loss_class: the loss for class level alignment
         """
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
         assert len(label_s.shape) >= 3, 'tensor "label_s" and "label_t" must have 3 dimensions'
-        label_s = self.downscale_gt(label_s)  # (b, 32*h, 32*w) -> (b, 1, h, w)
+        label_s = self.downscale_gt(label_s)  # (b, 16*h, 16*w) -> (b, 1, h, w)
         half = feat_s.shape[0] // 2
         local_prototype_s1 = self._compute_local_prototypes(feat_s[:half], label_s[:half], update=False)
         local_prototype_s2 = self._compute_local_prototypes(feat_s[half:], label_s[half:], update=False)
@@ -135,92 +141,94 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
-    def label_refine(self, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0, n_start=False):
+    def label_refine(self, label_t_sup, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0):
         """Refine the pseudo label online by the distances between features and prototypes.
         Args:
+            label_t_sup: Tensor, superpixel label, (b, 1, 16*h, 16*w)
             feat_t: Tensor, feature map, (b, k, h, w)
             preds_t: Tensor or [Tensor, ], predicted logits, (b, c, h, w) or [(b, c, h, w), ]
-            label_t_soft: Tensor, pseudo labels, (b, c, h, w)
+            label_t_soft: Tensor, pseudo labels, (b, c, 16*h, 16*w)
             refine: bool, if refine the pseudo labels or not.
-            mode:
+            mode: refine schema ['all', 's', 'p', 'n', 'l']
             temp:
         Returns:
             label_t_hard: Tensor, refined pseudo labels, (b, h, w)
         """
-        assert mode in ['all', 'p', 'n', 'l']
+        assert mode in ['all', 's', 'p', 'n', 'l']
 
         if refine:
             weight = 0
             b, k, h, w = feat_t.shape
-            feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)                      # (b*h*w, k)
-            if mode in ['all', 'p']:    # pixel view
-                simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)     # (b*h*w, c) Pearson distance
+            h_origin, w_origin = label_t_soft.shape[-2:]
+            feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
+
+            if mode in ['all', 's']:  # superpixel view
+                # compute mean prob for each superpixel
+                label_t_sup_ = label_t_sup.reshape(b, -1, 1)                                        # (b, 16h*16w, 1)
+                label_t_soft_ = label_t_soft.permute(0, 2, 3, 1).reshape(b, -1, self.class_num)     # (b, 16h*16w, c)
+                mean_prob = scatter(src=label_t_soft_, index=label_t_sup_, dim=1, reduce='mean')    # (b, n_sup, c)
+                # retrieval probabilities for each pixel
+                label_t_sup_ = label_t_sup_.repeat(1, 1, self.class_num)
+                prob_pixel = torch.gather(mean_prob, dim=1, index=label_t_sup_)
+                prob_pixel = prob_pixel.reshape(b, h_origin, w_origin, self.class_num).permute(0, 3, 1, 2)
+                # get similarity for each pixel
+                sup_weight = prob_pixel / (torch.max(prob_pixel, dim=1, keepdim=True)[0] + 1e-7)
+                weight += sup_weight
+
+            if mode in ['all', 'p']:  # prototype view
+                simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)  # (b*h*w, c) Pearson distance
                 # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
-                simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
-                simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
-                                              mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-                prototypes_weight = self._softmax_T(simi_matrix, temp=1, dim=1).detach()    # (b, c, 32*h, 32*w)
-                prototypes_weight = prototypes_weight / (torch.max(prototypes_weight, dim=1 ,keepdim=True)[0] + 1e-7)
+                simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
+                simi_matrix = tnf.interpolate(simi_matrix, (h_origin, w_origin),
+                                              mode='bilinear', align_corners=True)  # (b, c, 16*h, 16*w)
+                prototypes_weight = self._softmax_T(simi_matrix, temp=1, dim=1).detach()  # (b, c, 16*h, 16*w)
+                prototypes_weight = prototypes_weight / (torch.max(prototypes_weight, dim=1, keepdim=True)[0] + 1e-7)
                 weight += prototypes_weight
 
-            if mode in ['a']:    # area view
-                simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)     # (b*h*w, c) Pearson distance
-                # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
-                simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)     # (b, c, h, w)
-                simi_matrix = tnf.interpolate(simi_matrix, label_t_soft.shape[-2:],
-                                              mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-                prototypes_weight = self._softmax_T(simi_matrix, temp=1, dim=1).detach()    # (b, c, 32*h, 32*w)
-                prototypes_weight = prototypes_weight / (torch.max(prototypes_weight, dim=1 ,keepdim=True)[0] + 1e-7)
-                weight += prototypes_weight
-
-            if mode in ['all', 'n'] and n_start:# neighbor view x
-                # compute top k nearest examples for each exampe within a mini-batch
-                simi_matrix = 1.0 / (torch.cdist(feat_t, feat_t) + 1e-7)
-                # simi_matrix = self._compute_similarity(feat_t, feat_t)
-                _, topK_idx = torch.topk(simi_matrix.detach(), k=self.topk + 1, dim=-1)         # (b*h*w, topk)
-                # get class ratio in topk examples
-                label_t_soft_down = tnf.interpolate(label_t_soft, (h, w), mode='bilinear', align_corners=True)
-                label_t_hard = torch.argmax(label_t_soft_down, dim=1)                       # (b, h, w)
-                label_repeat = label_t_hard.reshape(-1, 1).repeat(1, self.topk)     # (b*h*w, topk)
-                topK_class = torch.gather(label_repeat, 0, topK_idx[:,1:])             # (b*h*w, topk)
-                topK_class_onehot = tnf.one_hot(topK_class, num_classes=self.class_num)     # (b*h*w, topk, c)
-                topK_class_num = torch.sum(topK_class_onehot * self.topk_importance, dim=1) # (b*h*w, c)
-                topK_class_ratio = topK_class_num / (torch.sum(topK_class_num, dim=-1, keepdim=True) + 1e-7)
-                # comput weight
-                topK_class_weight = self._softmax_T(topK_class_ratio, temp=temp, dim=-1)
-                topK_class_ratio_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
-                topK_class_weight = topK_class_weight / (1e-7 + topK_class_ratio_max)       # (b*h*w, c)
-                # topk_class_ratio_max = torch.max(topK_class_num, dim=-1, keepdim=True)[0]
-                # topK_class_weight = (topK_class_num == topk_class_ratio_max)
-                # topK_class_weight = self._softmax_T(topK_class_weight, temp=temp, dim=-1)
-                # topK_class_weight_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
-                # topK_class_weight = topK_class_weight / (1e-7 + topK_class_weight_max)       # (b*h*w, c)
-                #  #
-                topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)      # (b, c, h, w)
-                topK_class_weight = tnf.interpolate(topK_class_weight, label_t_soft.shape[-2:],
-                                                    mode='bilinear', align_corners=True)    # (b, c, 32*h, 32*w)
-                weight += topK_class_weight.detach()
-
-            if mode in ['all', 'l']:    # prediction view
+            if mode in ['all', 'l']:  # prediction view
                 if isinstance(preds_t, list):
                     assert len(preds_t) == 2
-                    x1 = tnf.interpolate(preds_t[0], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
-                    x2 = tnf.interpolate(preds_t[1], label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    x1 = tnf.interpolate(preds_t[0], (h_origin, w_origin), mode='bilinear', align_corners=True)
+                    x2 = tnf.interpolate(preds_t[1], (h_origin, w_origin), mode='bilinear', align_corners=True)
                     prediction_weight = (self._softmax_T(x1, temp=temp, dim=1) +
                                          self._softmax_T(x2, temp=temp, dim=1)).detach() * 0.5
                 else:
-                    x = tnf.interpolate(preds_t, label_t_soft.shape[-2:], mode='bilinear', align_corners=True)
+                    x = tnf.interpolate(preds_t, (h_origin, w_origin), mode='bilinear', align_corners=True)
                     prediction_weight = self._softmax_T(x, temp=temp, dim=1).detach()
                 prediction_weight = prediction_weight / (torch.max(prediction_weight, dim=1, keepdim=True)[0] + 1e-7)
                 weight += prediction_weight
 
-            # weight /= cnt_views
+            if mode in ['n']:  # neighbor view x
+                # compute top k nearest examples for each exampe within a mini-batch
+                simi_matrix = 1.0 / (torch.cdist(feat_t, feat_t) + 1e-7)
+                # simi_matrix = self._compute_similarity(feat_t, feat_t)
+                _, topK_idx = torch.topk(simi_matrix.detach(), k=self.topk + 1, dim=-1)  # (b*h*w, topk)
+                # get class ratio in topk examples
+                label_t_soft_down = tnf.interpolate(label_t_soft, (h, w), mode='bilinear', align_corners=True)
+                label_t_hard = torch.argmax(label_t_soft_down, dim=1)  # (b, h, w)
+                label_repeat = label_t_hard.reshape(-1, 1).repeat(1, self.topk)  # (b*h*w, topk)
+                topK_class = torch.gather(label_repeat, 0, topK_idx[:, 1:])  # (b*h*w, topk)
+                topK_class_onehot = tnf.one_hot(topK_class, num_classes=self.class_num)  # (b*h*w, topk, c)
+                topK_class_num = torch.sum(topK_class_onehot * self.topk_importance, dim=1)  # (b*h*w, c)
+                topK_class_ratio = topK_class_num / (torch.sum(topK_class_num, dim=-1, keepdim=True) + 1e-7)
+                # comput weight
+                topK_class_weight = self._softmax_T(topK_class_ratio, temp=temp, dim=-1)
+                topK_class_ratio_max, _ = torch.max(topK_class_weight, dim=1, keepdim=True)
+                topK_class_weight = topK_class_weight / (1e-7 + topK_class_ratio_max)  # (b*h*w, c)
+                topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
+                topK_class_weight = tnf.interpolate(topK_class_weight, (h_origin, w_origin),
+                                                    mode='bilinear', align_corners=True)  # (b, c, 16*h, 16*w)
+                if mode in ['all']:
+                    simi_instance = (tnf.cosine_similarity(weight, topK_class_weight, dim=1) + 1.0) * 0.5
+                    weight = (simi_instance.unsqueeze(dim=1) * weight).detach()
+                else:
+                    weight += topK_class_weight.detach()
+
+            if isinstance(weight, int):
+                return label_t_soft
 
             label_t_soft = weight.detach() * label_t_soft
             label_t_soft = self._logits_norm(label_t_soft)
-        # label_t_hard = pseudo_selection(label_t_soft, cutoff_top=0.8, cutoff_low=0.6, return_type='tensor',
-        #                                 ignore_label=self.ignore_label)
-        # return label_t_hard  # (b, h, w)
         return label_t_soft
 
     def get_prototype_weight_4pixel(self, feats, label_hard, temp=2.0):
@@ -230,14 +238,14 @@ class Aligner:
         simi_matrix = 1.0 / self._pearson_dist(_feats, self.prototypes)  # (b*h*w, c) Pearson distance
         simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
         simi_matrix = tnf.interpolate(simi_matrix, label_hard.shape[-2:],
-                                      mode='bilinear', align_corners=True)  # (b, c, 32*h, 32*w)
-        # simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 32*h, 32*w)
-        simi_matrix = self._softmax_T(simi_matrix, temp=1, dim=1)      # (b, c, 32*h, 32*w)
+                                      mode='bilinear', align_corners=True)  # (b, c, 16*h, 16*w)
+        # simi_matrix = torch.softmax(simi_matrix, dim=1)      # (b, c, 16*h, 16*w)
+        simi_matrix = self._softmax_T(simi_matrix, temp=1, dim=1)  # (b, c, 16*h, 16*w)
         max_v, _ = torch.max(simi_matrix, dim=1, keepdim=True)
         simi_matrix = simi_matrix / (max_v + self.eps)
-        label_onehot = self._index2onehot(label_hard).reshape(b, h2, w2, -1).permute(0, 3, 1, 2)   # (b, c, 32*h, 32*w)
+        label_onehot = self._index2onehot(label_hard).reshape(b, h2, w2, -1).permute(0, 3, 1, 2)  # (b, c, 16*h, 16*w)
         weight = torch.sum(simi_matrix * label_onehot, dim=1).reshape(-1)
-        return weight.detach()   # (b* 32*h* 32*w)
+        return weight.detach()  # (b* 16*h* 16*w)
 
     @staticmethod
     def _softmax_T(feat, temp=1.0, dim=1):
@@ -387,7 +395,8 @@ class Aligner:
         ii = int(feat_2.shape[0]) // step
         for i in range(ii):
             # simi_local = 1 / (self.eps + self._pearson_dist(feat_1, feat_2[i*step: (i+1)*step,:]))
-            simi[:,i*step: (i+1)*step] = 1 / (self.eps + self._pearson_dist(feat_1, feat_2[i*step: (i+1)*step,:]))
+            simi[:, i * step: (i + 1) * step] = 1 / (
+                        self.eps + self._pearson_dist(feat_1, feat_2[i * step: (i + 1) * step, :]))
         return simi
 
     @staticmethod

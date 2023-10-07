@@ -21,70 +21,82 @@ class Resize(object):
     def __init__(self, size):
         self.size = size
 
-    def __call__(self, image, target=None):
+    def __call__(self, image, target=None, mask_sup=None):
         image = F.resize(image, self.size)
         if target is not None:
             target = F.resize(target, self.size, interpolation=F.InterpolationMode.NEAREST)
-        return image, target
+        if mask_sup is not None:
+            mask_sup = F.resize(mask_sup, self.size, interpolation=F.InterpolationMode.NEAREST)
+        return image, target, mask_sup
 
 
 class RandomHorizontalFlip(object):
     def __init__(self, prob):
         self.prob = prob
 
-    def __call__(self, image, target=None):
+    def __call__(self, image, target=None, mask_sup=None):
         if random.random() < self.prob:
             image = F.hflip(image)
             if target is not None:
                 target = F.hflip(target)
-        return image, target
+            if mask_sup is not None:
+                mask_sup = F.hflip(mask_sup)
+        return image, target, mask_sup
 
 
 class RandomVerticalFlip(object):
     def __init__(self, prob):
         self.prob = prob
 
-    def __call__(self, image, target=None):
+    def __call__(self, image, target=None, mask_sup=None):
         if random.random() < self.prob:
             image = F.vflip(image)
             if target is not None:
                 target = F.vflip(target)
-        return image, target
+            if mask_sup is not None:
+                mask_sup = F.vflip(mask_sup)
+        return image, target, mask_sup
 
 
 class RandomRotate90(object):
     def __init__(self, prob):
         self.prob = prob
 
-    def __call__(self, image, target=None):
+    def __call__(self, image, target=None, mask_sup=None):
         if random.random() < self.prob:
             image = torch.rot90(image, k=1, dims=[1, 2])    # rotate neg 90
             if target is not None:
                 target = torch.rot90(target, k=1, dims=[1, 2])
-        return image, target
+            if mask_sup is not None:
+                mask_sup = torch.rot90(mask_sup, k=1, dims=[1, 2])
+        return image, target, mask_sup
 
 
 class RandomCrop(object):
     def __init__(self, size):
         self.size = size
 
-    def __call__(self, image, target):
+    def __call__(self, image, target, mask_sup=None):
         crop_params = T.RandomCrop.get_params(image, self.size)
         image = F.crop(image, *crop_params)
         if target is not None:
             target = F.crop(target, *crop_params)
-        return image, target
+        if mask_sup is not None:
+            mask_sup = F.crop(mask_sup, *crop_params)
+        return image, target, mask_sup
 
 
 class CenterCrop(object):
     def __init__(self, size):
         self.size = size
 
-    def __call__(self, image, target):
+    def __call__(self, image, target, mask_sup=None):
         image = F.center_crop(image, self.size)
         if target is not None:
             target = F.center_crop(target, self.size)
-        return image, target
+        if mask_sup is not None:
+            mask_sup = F.center_crop(mask_sup, self.size)
+        return image, target, mask_sup
 
 
 class Normalize(object):
@@ -94,11 +106,11 @@ class Normalize(object):
         self.max_pixel_value = max_pixel_value
         self.always_apply = always_apply
 
-    def __call__(self, image, target):
+    def __call__(self, image, target, mask_sup=None):
         image = F.normalize(image, mean=self.mean, std=self.std)
         if self.always_apply:
             image = torch.clamp(image, max=self.max_pixel_value)
-        return image, target
+        return image, target, mask_sup
 
 
 class Pad(object):
@@ -107,29 +119,33 @@ class Pad(object):
         self.padding_fill_value = padding_fill_value
         self.padding_fill_target_value = padding_fill_target_value
 
-    def __call__(self, image, target):
+    def __call__(self, image, target, mask_sup=None):
         image = F.pad(image, self.padding_n, self.padding_fill_value)
         if target is not None:
             target = F.pad(target, self.padding_n, self.padding_fill_target_value)
-        return image, target
+        if mask_sup is not None:
+            mask_sup = F.pad(mask_sup, self.padding_n, self.padding_fill_target_value)
+        return image, target, mask_sup
 
 
 class ToTensor(object):
-    def __call__(self, image, target):
+    def __call__(self, image, target, mask_sup=None):
         image = torch.as_tensor(image, dtype=torch.float32)
         if target is not None:
             target = torch.as_tensor(np.array(target), dtype=torch.int64)
-        return image, target
+        if mask_sup is not None:
+            mask_sup = torch.as_tensor(np.array(mask_sup), dtype=torch.int64)
+        return image, target, mask_sup
 
 
 class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms
 
-    def __call__(self, image, mask=None):
+    def __call__(self, image, mask=None, mask_sup=None):
         for t in self.transforms:
-            image, mask = t(image, mask)
-        return {'image': image, 'mask': mask}
+            image, mask, mask_sup = t(image, mask, mask_sup)
+        return {'image': image, 'mask': mask, 'mask_sup': mask_sup}
 
 
 # 使用：

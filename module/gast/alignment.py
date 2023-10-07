@@ -172,6 +172,7 @@ class Aligner:
                 prob_pixel = torch.gather(mean_prob, dim=1, index=label_t_sup_)
                 prob_pixel = prob_pixel.reshape(b, h_origin, w_origin, self.class_num).permute(0, 3, 1, 2)
                 # get similarity for each pixel
+                prob_pixel = self._softmax_T(prob_pixel, temp=1, dim=1).detach()
                 sup_weight = prob_pixel / (torch.max(prob_pixel, dim=1, keepdim=True)[0] + 1e-7)
                 weight += sup_weight
 

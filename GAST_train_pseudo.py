@@ -233,6 +233,8 @@ def main():
                 label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
                                                 return_type='tensor', ignore_label=ignore_label)
 
+                # label_t_hard = aligner.superpixel_expand(label_t_hard, label_t_sup)
+
                 aligner.update_prototype(feat_t, label_t_hard)
                 # aligner.update_prototype_bytarget(feat_t, label_t_soft)
 
@@ -275,7 +277,7 @@ def main():
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
-            evaluate(model, cfg, True, ckpt_path, logger)
+            tb = evaluate(model, cfg, True, ckpt_path, logger)
             if i_iter + 1 > cfg.FIRST_STAGE_STEP:
                 ema_model.apply_shadow()
                 evaluate(model, cfg, True, ckpt_path, logger)

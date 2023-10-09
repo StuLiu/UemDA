@@ -23,7 +23,7 @@ from module.gast.pseudo_generation import pseudo_selection
 
 class Aligner:
 
-    def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1, decay=0.999, topk=128):
+    def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1, decay=0.999, topk=32):
 
         # channel number of feature maps
         self.feat_channels = feat_channels
@@ -141,6 +141,25 @@ class Aligner:
     def show(self, save_path=None, display=True):
         pass
 
+    def superpixel_expand(self, label_t_hard, label_t_sup):
+        """
+        Args:
+            label_t_hard: Tensor, pseudo labels, (b, 16*h, 16*w)
+            label_t_sup: Tensor, superpixel label, (b, 1, 16*h, 16*w)
+        Returns:
+            label_t_hard: Tensor, refined pseudo labels, (b, 16*h, 16*w)
+        """
+        b, h, w = label_t_hard.shape
+        label_t_onehot = self._index2onehot(label_t_hard)       # (b, c, 16*h, 16*w)
+        label_t_onehot = label_t_onehot.reshape(b, -1, self.class_num)  # (b, 16*hx16*w, c)
+        label_t_sup_ = label_t_sup.reshape(b, -1, 1)                                        # (b, 16*hx16*w, 1)
+        class_num_4sup = scatter(src=label_t_onehot, index=label_t_sup_, dim=1, reduce='sum')  # (b, n_sup, c)
+        class_num_max, class_num_max_id = torch.max(class_num_4sup, dim=-1, keepdim=True)   # (b, n_sup, 1)
+        class_num_max_id[class_num_max == 0] = -1
+        label_t_hard_ = torch.gather(class_num_max_id, dim=1, index=label_t_sup_)           # (b, 16*hx16*w, 1)
+        label_t_hard_ = label_t_hard_.reshape(b, h, w)
+        return label_t_hard_
+
     def label_refine(self, label_t_sup, feat_t, preds_t, label_t_soft, refine=True, mode='all', temp=2.0):
         """Refine the pseudo label online by the distances between features and prototypes.
         Args:
@@ -160,25 +179,25 @@ class Aligner:
             weight = 0
             b, k, h, w = feat_t.shape
             h_origin, w_origin = label_t_soft.shape[-2:]
-            feat_t = feat_t.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
+            feat_t_flat = feat_t.permute(0, 2, 3, 1).reshape(-1, k)  # (b*h*w, k)
 
-            if mode in ['all', 's']:  # superpixel view
+            if mode in ['s']:  # superpixel + pred view
                 # compute mean prob for each superpixel
                 label_t_sup_ = label_t_sup.reshape(b, -1, 1)                                        # (b, 16h*16w, 1)
                 label_t_soft_ = label_t_soft.permute(0, 2, 3, 1).reshape(b, -1, self.class_num)     # (b, 16h*16w, c)
-                mean_prob = scatter(src=label_t_soft_, index=label_t_sup_, dim=1, reduce='mean')    # (b, n_sup, c)
+                mean_prob = scatter(src=label_t_soft_, index=label_t_sup_, dim=1, reduce='max')    # (b, n_sup, c)
                 # retrieval probabilities for each pixel
                 label_t_sup_ = label_t_sup_.repeat(1, 1, self.class_num)
                 prob_pixel = torch.gather(mean_prob, dim=1, index=label_t_sup_)
                 prob_pixel = prob_pixel.reshape(b, h_origin, w_origin, self.class_num).permute(0, 3, 1, 2)
                 # get similarity for each pixel
-                prob_pixel = self._softmax_T(prob_pixel, temp=1, dim=1).detach()
+                prob_pixel = self._softmax_T(prob_pixel, temp=temp, dim=1).detach()
                 sup_weight = prob_pixel / (torch.max(prob_pixel, dim=1, keepdim=True)[0] + 1e-7)
-                weight += sup_weight
+                weight += 0.1 * sup_weight
 
             if mode in ['all', 'p']:  # prototype view
-                simi_matrix = 1.0 / self._pearson_dist(feat_t, self.prototypes)  # (b*h*w, c) Pearson distance
-                # simi_matrix = -self._euclide_dist(feat_t, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
+                simi_matrix = 1.0 / self._pearson_dist(feat_t_flat, self.prototypes)  # (b*h*w, c) Pearson distance
+                # simi_matrix = -self._euclide_dist(feat_t_flat, self.prototypes, p=2)   # (b*h*w, c) Euclidean distance
                 simi_matrix = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
                 simi_matrix = tnf.interpolate(simi_matrix, (h_origin, w_origin),
                                               mode='bilinear', align_corners=True)  # (b, c, 16*h, 16*w)
@@ -199,13 +218,19 @@ class Aligner:
                 prediction_weight = prediction_weight / (torch.max(prediction_weight, dim=1, keepdim=True)[0] + 1e-7)
                 weight += prediction_weight
 
-            if mode in ['n']:  # neighbor view x
+            if mode in ['all', 'n']:  # neighbor view x
                 # compute top k nearest examples for each exampe within a mini-batch
-                simi_matrix = 1.0 / (torch.cdist(feat_t, feat_t) + 1e-7)
-                # simi_matrix = self._compute_similarity(feat_t, feat_t)
+                simi_matrix = 1.0 / (torch.cdist(feat_t_flat, feat_t_flat) + 1e-7)
+                # simi_matrix = self._compute_similarity(feat_t_flat, feat_t_flat)
                 _, topK_idx = torch.topk(simi_matrix.detach(), k=self.topk + 1, dim=-1)  # (b*h*w, topk)
+
                 # get class ratio in topk examples
-                label_t_soft_down = tnf.interpolate(label_t_soft, (h, w), mode='bilinear', align_corners=True)
+                # ########### >>>>>>>> over fitting due to the noisy predictions
+                # label_t_soft_down = tnf.interpolate(label_t_soft, (h, w), mode='bilinear', align_corners=True)
+                # ########### <<<<<<<<
+                simi_matrix = 1.0 / self._pearson_dist(feat_t_flat, self.prototypes)  # (b*h*w, c) Pearson distance
+                label_t_soft_down = simi_matrix.view(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
+
                 label_t_hard = torch.argmax(label_t_soft_down, dim=1)  # (b, h, w)
                 label_repeat = label_t_hard.reshape(-1, 1).repeat(1, self.topk)  # (b*h*w, topk)
                 topK_class = torch.gather(label_repeat, 0, topK_idx[:, 1:])  # (b*h*w, topk)
@@ -219,11 +244,12 @@ class Aligner:
                 topK_class_weight = topK_class_weight.reshape(b, h, w, -1).permute(0, 3, 1, 2)  # (b, c, h, w)
                 topK_class_weight = tnf.interpolate(topK_class_weight, (h_origin, w_origin),
                                                     mode='bilinear', align_corners=True)  # (b, c, 16*h, 16*w)
-                if mode in ['all']:
-                    simi_instance = (tnf.cosine_similarity(weight, topK_class_weight, dim=1) + 1.0) * 0.5
-                    weight = (simi_instance.unsqueeze(dim=1) * weight).detach()
-                else:
-                    weight += topK_class_weight.detach()
+                # if mode in ['all']:
+                #     simi_instance = (tnf.cosine_similarity(weight, topK_class_weight, dim=1) + 1.0) * 0.5
+                #     weight = (simi_instance.unsqueeze(dim=1) * weight).detach()
+                # else:
+                #     weight += topK_class_weight.detach()
+                weight += 0.1 * topK_class_weight.detach()
 
             if isinstance(weight, int):
                 return label_t_soft

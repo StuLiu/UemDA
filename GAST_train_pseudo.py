@@ -24,7 +24,7 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.class_balance import GDPLoss, FocalLoss, GHMLoss
+from module.gast.class_balance import UVEMLoss, FocalLoss, GHMLoss, loss_calc_uvem
 from module.utils.ema import ExponentialMovingAverage
 from module.gast.domain_balance import examples_cnt, get_target_weight
 
@@ -45,18 +45,17 @@ parser.add_argument('--refine-mode', type=str, default='all',
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 
 parser.add_argument('--balance-type', type=str, default='gdp',
-                    choices=['none', 'focal', 'ghm', 'gdp', 'our'], help='focal, ohem, ghm, or ours')
+                    choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'none'], help='focal, ohem, ghm, or ours')
 parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class')
 parser.add_argument('--balance-pt', type=str2bool, default=1, help='whether re-weight by prototypes')
 parser.add_argument('--class-temp', type=float, default=0.5, help='smooth factor')
 
-parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
+parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
 args = parser.parse_args()
 
 # get config from config.py
 cfg = import_config(args.config_path)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
-assert args.balance_type in ['ours', 'gdp', 'ohem', 'focal', 'ghm', 'none']
 
 
 def main():
@@ -101,24 +100,24 @@ def main():
     aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
                       ignore_label=ignore_label, decay=0.996)
 
-    if args.balance_type in ['ours', 'gdp']:
-        logger.info('>>>>>>> using ours/gdp loss.')
-        # loss_fn_s = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
+    loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+    if args.balance_type in ['ours', 'uvem']:
+        logger.info('>>>>>>> using ours/uvem_loss.')
+        loss_fn_t = UVEMLoss(m=0.1, threshold=0.75, gamma=8.0, class_balance=args.balance_class, temp=args.class_temp,
+                             class_num=class_num, ignore_label=ignore_label)
+        # loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
         #                     class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
-        loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
-        loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
-                            class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
     elif args.balance_type == 'focal':
         logger.info('>>>>>>> using FocalLoss.')
-        loss_fn_s = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
+        # loss_fn_s = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
         loss_fn_t = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
     elif args.balance_type == 'ghm':
         logger.info('>>>>>>> using GHMLoss.')
-        loss_fn_s = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
+        # loss_fn_s = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
         loss_fn_t = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
     else:
         logger.info('>>>>>>> using CrossEntropyLoss.')
-        loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+        # loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
         loss_fn_t = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
 
     # source loader
@@ -165,10 +164,10 @@ def main():
             images_t = images_t.cuda()
             _, _, feat_t = model(images_t)
 
-            # Loss: source segmentation + global alignment
-            if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
-                loss_fn_s.set_prototype_weight_4pixel(
-                    aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
+            # # Loss: source segmentation + global alignment
+            # if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
+            #     loss_fn_s.set_prototype_weight_4pixel(
+            #         aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
             loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
 
             loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
@@ -239,16 +238,18 @@ def main():
                 # aligner.update_prototype_bytarget(feat_t, label_t_soft)
 
                 # loss
-                if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
-                    loss_fn_s.set_prototype_weight_4pixel(
-                        aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
-                if isinstance(loss_fn_t, GDPLoss) and args.balance_pt:
-                    loss_fn_t.set_prototype_weight_4pixel(
-                        aligner.get_prototype_weight_4pixel(feat_t, label_t_hard, args.refine_temp))
+                # if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
+                #     loss_fn_s.set_prototype_weight_4pixel(
+                #         aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
+                # if isinstance(loss_fn_t, UVEMLoss) and args.balance_pt:
+                #     loss_fn_t.set_prototype_weight_4pixel(
+                #         aligner.get_prototype_weight_4pixel(feat_t, label_t_hard, args.refine_temp))
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
-                # loss_source = loss_fn_s(loss_source, label_s)  # balance op
-                loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, loss_fn=loss_fn_t, multi=True)
-                # loss_pseudo = loss_fn_t(loss_pseudo, label_t_hard)  # balance op
+                if isinstance(loss_fn_t, UVEMLoss):
+                    loss_pseudo = loss_calc_uvem([pred_t1, pred_t2], label_t_hard, label_t_soft,
+                                                 loss_fn=loss_fn_t, multi=True)
+                else:
+                    loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, loss_fn=loss_fn_t, multi=True)
                 loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
                 loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
 
@@ -267,13 +268,13 @@ def main():
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
             # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
-            if args.balance_type == 'ours':
-                logger.info(f'source domain: {loss_fn_s}')
-                logger.info(f'target domain: {loss_fn_t}')
-            elif args.balance_type in ['ghm', 'gdp', 'ours']:
-                if isinstance(loss_fn_s, GDPLoss):
-                    logger.info(f'source domain: {loss_fn_s.get_g_distribution()}')
-                logger.info(f'target domain: {loss_fn_t.get_g_distribution()}')
+            # if args.balance_type == 'ours':
+            #     logger.info(f'source domain: {loss_fn_s}')
+            #     logger.info(f'target domain: {loss_fn_t}')
+            # elif args.balance_type in ['ghm', 'gdp', 'ours']:
+            #     if isinstance(loss_fn_s, GDPLoss):
+            #         logger.info(f'source domain: {loss_fn_s.get_g_distribution()}')
+            #     logger.info(f'target domain: {loss_fn_t.get_g_distribution()}')
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)

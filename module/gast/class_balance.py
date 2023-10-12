@@ -248,29 +248,120 @@ class GDPLoss(nn.Module):
         return self.acc_sum / (self.acc_sum.sum() + 1e-7), self.bins_weight, str(self.class_balancer)
 
 
-if __name__ == '__main__':
+class UVEMLoss(nn.Module):
 
-    prob = torch.rand(8, 7, 512, 512).cuda()
-    target = torch.randint(-1, 2, (8, 512, 512)).cuda()
+    def __init__(self, m=0.1, threshold=0.75, gamma=8.0, class_balance=False, temp=0.5, class_num=7, ignore_label=-1):
+        super(UVEMLoss, self).__init__()
+        self.m = m
+        self.threshold = threshold
+        self.gamma = gamma
+        self.class_balancer = None
+        if class_balance:
+            self.class_balancer = ClassBalance(class_num=class_num, ignore_label=ignore_label, decay=0.99,
+                                               temperature=temp)
+        self.class_num = class_num
+        self.ignore_label = ignore_label
+
+    def forward(self, preds, targets, label_t_soft):
+        """
+        Args:
+            preds: Tensor, (b, c, h, w), without softmax
+            targets: Tensor, (b, h, w)
+            label_t_soft: Tensor, (b, c, h, w), softmax-ed
+        Returns:
+            loss: Tensor, (1,)
+        """
+        # Flatten the prediction and target tensors
+        preds_ = preds.permute((0, 2, 3, 1)).reshape(-1, self.class_num)        # (-1, c)
+        targets_ = targets.view(-1)                                             # (-1,)
+        lts_ = label_t_soft.permute((0, 2, 3, 1)).reshape(-1, self.class_num)   # (-1,)
+        # original cross-entropy loss
+        ce_loss = tnf.cross_entropy(preds_, targets_, reduction='none', ignore_index=self.ignore_label)     # (-1,)
+        # >>>>> uncertainty-based valuable example mining(UVEM)
+        # cls = preds_
+        uncertainty = torch.sum(-lts_ * torch.log(lts_), dim=1).detach()      # (-1,)
+        # ce_loss[uncertainty > self.threshold] = 0         # gated uncertain example removing
+        weight_uncer = self.get_weight(uncertainty)         # get example weight, (-1,)
+        # compute loss
+        loss = weight_uncer * ce_loss
+        valid_cnt = torch.sum((uncertainty <= self.threshold) & (targets_ != self.ignore_label))
+        loss = loss.sum() / (valid_cnt + 1e-7)
+        # <<<<<<
+        return loss
+
+    def get_weight(self, uncertainties):
+        unce_ = uncertainties.clone()
+        unce_[unce_ > self.threshold] = self.threshold      # gated uncertain example removing
+        weight_left = (-1 / (self.m ** 2)) * (unce_ - self.m) ** 2 + 1
+        weight_right = (-1 / ((self.threshold - self.m) ** 2)) * (unce_ - self.m) ** 2 + 1
+        weight = torch.where(unce_ < self.m,
+                             weight_left ** (1.0 / self.gamma),
+                             weight_right ** (1.0 / self.gamma))
+        return weight
+
+    def drow_weight_curve(self):
+        import numpy as np
+        import matplotlib.pyplot as plt
+        n = 1000.0
+        unce = [i / n for i in range(int(n))]
+        unce_ = torch.from_numpy(np.array(unce)).float().cuda()
+        weight_unce = self.get_weight(unce_)
+        plt.plot(unce, weight_unce.cpu().numpy(), "r-", label="weight")  # "r"为红色, "s"为方块, "-"为实线
+        plt.show(block=True)
+
+
+def loss_calc_uvem(pred, label, label_soft, loss_fn, multi=True):
+    """
+    This function returns cross entropy loss for semantic segmentation
+    """
+
+    if multi is True:
+        loss = 0
+        num = 0
+        for p in pred:
+            if p.size()[-2:] != label.size()[-2:]:
+                p = tnf.interpolate(p, size=label.size()[-2:], mode='bilinear', align_corners=True)
+            # l = tnf.cross_entropy(p, label.long(), ignore_index=-1, reduction=reduction)
+            loss += loss_fn(p, label.long(), label_soft)
+            num += 1
+        loss = loss / num
+    else:
+        if pred.size()[-2:] != label.size()[-2:]:
+            pred = tnf.interpolate(pred, size=label.size()[-2:], mode='bilinear', align_corners=True)
+        loss = loss_fn(pred, label.long(), label_soft)
+
+    return loss
+
+
+if __name__ == '__main__':
+    # prob = torch.rand(8, 6, 512, 512).cuda()
+    import cv2
+    prob = torch.load('../../log/GAST/2potsdam/pseudo_label/2_10_0_0_512_512.png.pt', map_location='cpu').cuda()
+    prob = prob.unsqueeze(dim=0).repeat(8, 1, 1, 1).float()
+    target = torch.from_numpy(cv2.imread('../../data/IsprsDA/Potsdam/ann_dir/train/2_10_0_0_512_512.png', cv2.IMREAD_UNCHANGED)).cuda()
+    target = target.unsqueeze(dim=0).repeat(8, 1, 1).long()
+    label_t_soft = prob.clone()
     FL = FocalLoss()
     # print('focal loss: ', FL(tnf.cross_entropy(prob, target, reduction='none'), target))
 
     gdp = GDPLoss(momentum=0.9, class_balance=True, prototype_refine=False)
-    print('gdp loss: ', gdp(torch.softmax(prob, dim=1), target))
-
-    print(gdp.get_g_distribution())
-
-    def rand_x_l():
-        return torch.randn([8, 3, 512, 512]).float().cuda(), \
-            torch.ones([8, 3, 512, 512]).float().cuda() / 2, \
-            torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
-            torch.randint(1, 2, [8, 512, 512]).long().cuda()
-
-
-    x_s, x_t, l_s, l_t = rand_x_l()
-
-    cbl = ClassBalance(class_num=3)
-    _rand_val = torch.rand_like(l_t, dtype=torch.float).cuda()
-    for _ in range(1000):
-        cbl.ema_update(l_t)
-    print(cbl)
+    uvem = UVEMLoss(m=0.1, threshold=0.75, gamma=8.0, class_balance=False, temp=0.5, class_num=6, ignore_label=-1)
+    print('UVEM loss: ', uvem(prob, target, label_t_soft))
+    print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft, loss_fn=uvem, multi=True))
+    uvem.drow_weight_curve()
+    # print(gdp.get_g_distribution())
+    #
+    # def rand_x_l():
+    #     return torch.randn([8, 3, 512, 512]).float().cuda(), \
+    #         torch.ones([8, 3, 512, 512]).float().cuda() / 2, \
+    #         torch.randint(0, 1, [8, 512, 512]).long().cuda(), \
+    #         torch.randint(1, 2, [8, 512, 512]).long().cuda()
+    #
+    #
+    # x_s, x_t, l_s, l_t = rand_x_l()
+    #
+    # cbl = ClassBalance(class_num=3)
+    # _rand_val = torch.rand_like(l_t, dtype=torch.float).cuda()
+    # for _ in range(1000):
+    #     cbl.ema_update(l_t)
+    # print(cbl)

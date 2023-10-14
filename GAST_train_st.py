@@ -24,7 +24,7 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.class_balance import ClassBalanceLoss
+from module.gast.balance import ClassBalanceLoss
 from module.utils.ema import ExponentialMovingAverage
 from module.gast.domain_balance import examples_cnt, get_target_weight
 

@@ -280,23 +280,52 @@ class UVEMLoss(nn.Module):
         # >>>>> uncertainty-based valuable example mining(UVEM)
         # cls = preds_
         uncertainty = torch.sum(-lts_ * torch.log(lts_), dim=1).detach()      # (-1,)
-        # ce_loss[uncertainty > self.threshold] = 0         # gated uncertain example removing
+        ce_loss[uncertainty > self.threshold] = 0           # gated uncertain example removing
         weight_uncer = self.get_weight(uncertainty)         # get example weight, (-1,)
         # compute loss
         loss = weight_uncer * ce_loss
         valid_cnt = torch.sum((uncertainty <= self.threshold) & (targets_ != self.ignore_label))
         loss = loss.sum() / (valid_cnt + 1e-7)
         # <<<<<<
+        # if torch.isnan(loss).item():
+        #     ce_max, ce_min = ce_loss.max(), ce_loss.min()
+        #     unce_max, unce_min = uncertainty.max(), uncertainty.min()
+        #     weight_max, weight_min = weight_uncer.max(), weight_uncer.min()
+        #     print(f'ce_max, ce_min={ce_max}, {ce_min}')
+        #     print(f'unce_max, unce_min={unce_max}, {unce_min}')
+        #     print(f'weight_max, weight_min={weight_max}, {weight_min}')
+        #     print(f'valid_cnt={valid_cnt}')
+        #     return 0
         return loss
 
     def get_weight(self, uncertainties):
         unce_ = uncertainties.clone()
         unce_[unce_ > self.threshold] = self.threshold      # gated uncertain example removing
-        weight_left = (-1 / (self.m ** 2)) * (unce_ - self.m) ** 2 + 1
-        weight_right = (-1 / ((self.threshold - self.m) ** 2)) * (unce_ - self.m) ** 2 + 1
-        weight = torch.where(unce_ < self.m,
-                             weight_left ** (1.0 / self.gamma),
-                             weight_right ** (1.0 / self.gamma))
+
+        if self.m <= 0:
+            weight_left_ = torch.ones_like(unce_)
+        else:
+            weight_left = torch.zeros_like(unce_)
+            weight_left = torch.where((unce_ <= self.m) & (unce_ >= 0), unce_, weight_left)
+            weight_left2 = (-1 / (self.m ** 2)) * (weight_left - self.m) ** 2 + 1
+            weight_left2 = torch.clamp(weight_left2, min=0.0, max=1.0)
+            weight_left_ = weight_left2 ** (1.0 / self.gamma)
+
+        if self.m >= self.threshold:
+            weight_right_ = torch.ones_like(unce_)
+        else:
+            weight_right = torch.zeros_like(unce_)
+            weight_right = torch.where((unce_ > self.m) & (unce_ <= self.threshold), unce_, weight_right)
+            weight_right2 = (-1 / ((self.threshold - self.m) ** 2)) * (weight_right - self.m) ** 2 + 1
+            weight_right2 = torch.clamp(weight_right2, min=0.0, max=1.0)
+            weight_right_ = weight_right2 ** (1.0 / self.gamma)
+
+        # weight_left_ = torch.ones_like(unce_)
+        # weight_right_ = torch.ones_like(unce_)
+
+        weight = torch.where(unce_ < self.m, weight_left_, weight_right_)
+        if torch.isnan(weight).any():
+            print(torch.sum(torch.isnan(weight)))
         return weight
 
     def drow_weight_curve(self):
@@ -338,16 +367,17 @@ if __name__ == '__main__':
     import cv2
     prob = torch.load('../../log/GAST/2potsdam/pseudo_label/2_10_0_0_512_512.png.pt', map_location='cpu').cuda()
     prob = prob.unsqueeze(dim=0).repeat(8, 1, 1, 1).float()
-    target = torch.from_numpy(cv2.imread('../../data/IsprsDA/Potsdam/ann_dir/train/2_10_0_0_512_512.png', cv2.IMREAD_UNCHANGED)).cuda()
+    target = torch.from_numpy(cv2.imread('../../data/IsprsDA/Potsdam/ann_dir/train/2_10_0_0_512_512.png',
+                                         cv2.IMREAD_UNCHANGED)).cuda()
     target = target.unsqueeze(dim=0).repeat(8, 1, 1).long()
-    label_t_soft = prob.clone()
+    label_t_soft_ = prob.clone()
     FL = FocalLoss()
     # print('focal loss: ', FL(tnf.cross_entropy(prob, target, reduction='none'), target))
 
     gdp = GDPLoss(momentum=0.9, class_balance=True, prototype_refine=False)
-    uvem = UVEMLoss(m=0.1, threshold=0.75, gamma=8.0, class_balance=False, temp=0.5, class_num=6, ignore_label=-1)
-    print('UVEM loss: ', uvem(prob, target, label_t_soft))
-    print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft, loss_fn=uvem, multi=True))
+    uvem = UVEMLoss(m=0.0, threshold=0.7, gamma=4, class_balance=False, temp=0.5, class_num=6, ignore_label=-1)
+    # print('UVEM loss: ', uvem(prob, target, label_t_soft))
+    print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=uvem, multi=True))
     uvem.drow_weight_curve()
     # print(gdp.get_g_distribution())
     #

@@ -129,7 +129,7 @@ def analysis_pseudo_labels(label_dir='data/IsprsDA/Vaihingen/ann_dir/train',
     assert len(labels) == len(pseudos)
     labels.sort()
     pseudos.sort()
-    range_cnt = 1000
+    range_cnt = 100
     step_length = math.log(n_classes) / range_cnt
     cnt_true_list = np.zeros((range_cnt))   # for pl
     cnt_used_list = np.zeros((range_cnt))   # for pl
@@ -296,17 +296,13 @@ def show_tradeoff(unce, diffi, cnt_used_list, t=0.75, gamma=1, block=False):
     weight = weight / (weight.max() + 1e-7) * 0.5 + 0.5
     # plt.plot(unce, (weight_hard + weight_unce) / 2, "rb-", label="difficulty")  # "b"为蓝色, "o"为圆点, ":"为点线
     plt.plot(unce, weight, "go-", label="uncertainty")  # "r"为红色, "s"为方块, "-"为实线
-
-
-
-
     plt.show(block=block)
     print('showed')
 
 
 if __name__ == "__main__":
     analysis_pseudo_labels(label_dir='data/IsprsDA/Vaihingen/ann_dir/train',
-                           pseudo_dir='log/GAST/2vaihingen/pseudo_label',
+                           pseudo_dir='log/GAST/2vaihingen20231013145427/pseudo_label',
                            ignore_label=-1, n_classes=6)
 
     # analysis_pseudo_labels(label_dir='data/IsprsDA/Potsdam/ann_dir/train',

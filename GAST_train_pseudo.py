@@ -24,7 +24,7 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.class_balance import UVEMLoss, FocalLoss, GHMLoss, loss_calc_uvem
+from module.gast.balance import UVEMLoss, FocalLoss, GHMLoss, loss_calc_uvem
 from module.utils.ema import ExponentialMovingAverage
 from module.gast.domain_balance import examples_cnt, get_target_weight
 
@@ -49,6 +49,9 @@ parser.add_argument('--balance-type', type=str, default='gdp',
 parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class')
 parser.add_argument('--balance-pt', type=str2bool, default=1, help='whether re-weight by prototypes')
 parser.add_argument('--class-temp', type=float, default=0.5, help='smooth factor')
+parser.add_argument('--uvem-m', type=float, default=0, help='whether balance class')
+parser.add_argument('--uvem-t', type=float, default=0.7, help='whether balance class')
+parser.add_argument('--uvem-g', type=float, default=4, help='whether balance class')
 
 parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
 args = parser.parse_args()
@@ -103,7 +106,8 @@ def main():
     loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
     if args.balance_type in ['ours', 'uvem']:
         logger.info('>>>>>>> using ours/uvem_loss.')
-        loss_fn_t = UVEMLoss(m=0.1, threshold=0.75, gamma=8.0, class_balance=args.balance_class, temp=args.class_temp,
+        loss_fn_t = UVEMLoss(m=args.uvem_m, threshold=args.uvem_t, gamma=args.uvem_g,
+                             class_balance=args.balance_class, temp=args.class_temp,
                              class_num=class_num, ignore_label=ignore_label)
         # loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
         #                     class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
@@ -223,7 +227,6 @@ def main():
                 pred_s1, pred_s2, feat_s = model(images_s)
                 # target
                 pred_t1, pred_t2, feat_t = model(images_t)
-
 
                 label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
                                                     refine=args.refine_label,

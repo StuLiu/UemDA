@@ -83,7 +83,7 @@ class SuperPixelsLSC(object):
         return number_supixl, label_supixl, color_img
 
 
-def get_superpixels(dir_path, out_dir, postfix='png', show=False):
+def get_superpixels(dir_path, out_dir, postfix='png', show=False, shrinking=True):
     """
     Get superpixel labels and visualizations
     Args:
@@ -98,6 +98,9 @@ def get_superpixels(dir_path, out_dir, postfix='png', show=False):
     img_paths.sort()
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(out_dir + "_vis", exist_ok=True)
+    if shrinking:
+        os.makedirs(out_dir + "_shrink", exist_ok=True)
+        os.makedirs(out_dir + "_shrink_vis", exist_ok=True)
 
     sp = SuperPixelsLSC(region_size=16, ratio=0.075, iterate_num=100)
 
@@ -111,11 +114,41 @@ def get_superpixels(dir_path, out_dir, postfix='png', show=False):
         # label_supixl_ = iio.imread(
         #     os.path.join(out_dir, str(os.path.basename(img_path)).replace(f'.{postfix}', '.tif'))
         # )
+
+        if shrinking:
+            edge_shrinking(out_dir, os.path.basename(img_path), postfix, label_supixl, win_size=3)
+
         cv2.imwrite(os.path.join(out_dir + "_vis", os.path.basename(img_path)), color_img)
 
         if show:
             cv2.imshow('sup_image', color_img)
             cv2.waitKey(0)
+
+
+def edge_shrinking(out_dir, img_name, postfix, label_supixl:np.ndarray, win_size=3, region_size=16):
+    h, w = label_supixl.shape
+    cnt_sup = int(h / region_size * w / region_size)
+    keeped_mat = np.ones_like(label_supixl)
+    for i in range(h):
+        for j in range(w):
+            curr_val = label_supixl[i][j]
+            keeped = True
+            for shift_i in range(-win_size, win_size + 1):
+                for shift_j in range(-win_size, win_size + 1):
+                    new_i, new_j = i + shift_i, j + shift_j
+                    if new_i < 0 or new_i >= h or new_j < 0 or new_j >= w:
+                        continue
+                    temp_val = label_supixl[new_i][new_j]
+                    if temp_val != curr_val:
+                        keeped = False
+                        keeped_mat[i][j] = 0
+                        break
+                if not keeped:
+                    break
+    label_supixl_out = np.where(keeped_mat == 1, label_supixl, cnt_sup)
+    iio.imsave(os.path.join(out_dir + '_shrink', img_name.replace(f'.{postfix}', '.tif')),
+               label_supixl_out)
+    return label_supixl_out
 
 
 if __name__ == '__main__':

@@ -87,6 +87,7 @@ def get_superpixels(dir_path, out_dir, postfix='png', show=False, shrinking=True
     """
     Get superpixel labels and visualizations
     Args:
+        shrinking:
         dir_path: dir path to target training images
         out_dir
         postfix: 'png'
@@ -125,7 +126,7 @@ def get_superpixels(dir_path, out_dir, postfix='png', show=False, shrinking=True
             cv2.waitKey(0)
 
 
-def edge_shrinking(out_dir, img_name, postfix, label_supixl:np.ndarray, win_size=3, region_size=16):
+def edge_shrinking(out_dir, img_name, postfix, label_supixl, win_size=3, region_size=16):
     h, w = label_supixl.shape
     cnt_sup = int(h / region_size * w / region_size)
     keeped_mat = np.ones_like(label_supixl)
@@ -161,4 +162,10 @@ if __name__ == '__main__':
                     postfix='png', show=False)
     get_superpixels(dir_path="../../data/IsprsDA/Potsdam/img_dir/train",
                     out_dir="../../data/IsprsDA/Potsdam/ann_dir/train_sup",
+                    postfix='png', show=False)
+    get_superpixels(dir_path="../../data/LoveDA/Val/Rural/images_png",
+                    out_dir="../../data/LoveDA/Val/Rural/masks_png_sup",
+                    postfix='png', show=False)
+    get_superpixels(dir_path="../../data/LoveDA/Val/Urban/images_png",
+                    out_dir="../../data/LoveDA/Val/Urban/masks_png_sup",
                     postfix='png', show=False)

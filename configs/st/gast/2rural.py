@@ -28,13 +28,6 @@ PSEUDO_SELECT = True
 CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
 
-TARGET_SET = TARGET_SET
-SOURCE_DATA_CONFIG=SOURCE_DATA_CONFIG
-# TARGET_DATA_CONFIG=TARGET_DATA_CONFIG
-PSEUDO_DATA_CONFIG = PSEUDO_DATA_CONFIG
-EVAL_DATA_CONFIG=EVAL_DATA_CONFIG
-TEST_DATA_CONFIG = TEST_DATA_CONFIG
-
 TARGET_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
     mask_dir=[None],
@@ -51,7 +44,8 @@ TARGET_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=4,
+    num_workers=8,
     pin_memory=True,
     label_type='prob',
+    read_sup=True,
 )

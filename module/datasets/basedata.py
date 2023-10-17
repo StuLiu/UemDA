@@ -58,7 +58,7 @@ class BaseData(Dataset):
             for fname in rgb_filename_list:
                 cls_filepath_list.append(os.path.join(mask_dir, fname))
                 # a = os.path.join(mask_dir + '_sup', f"{fname.split('.')[0]}.tif")
-                sup_filepath_list.append(os.path.join(image_dir.replace('img_dir', 'ann_dir') + '_sup',
+                sup_filepath_list.append(os.path.join(image_dir.replace('img_dir', 'ann_dir') + '_sup_shrink',
                                                       f"{fname.split('.')[0]}.tif"))
         self.rgb_filepath_list += rgb_filepath_list
         self.cls_filepath_list += cls_filepath_list

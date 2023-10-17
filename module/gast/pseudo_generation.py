@@ -21,6 +21,41 @@ from module.datasets import *
 from module.utils.tools import AverageMeter
 
 
+def pseudo_selection1(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray', ignore_label=-1):
+    """
+    Convert continuous mask into binary mask
+    Args:
+        mask: torch.Tensor, the predicted probabilities for each examples, shape=(b, c, h, w).
+        cutoff_top: float, the ratio for computing threshold.
+        cutoff_low: float, the minimum threshold.
+        return_type: str, the format of the return item, should be in ['ndarray', 'tensor'].
+    Returns:
+        ret: Tensor, pseudo label, shape=(b, h, w).
+    """
+    assert return_type in ['ndarray', 'tensor']
+    assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())
+    bs, c, h, w = mask.size()
+    mask = mask.view(bs, c, -1)                                     # (b, c, h*w)
+
+    # for each class extract the threshold confidence
+    class_threshold = mask.max(-1, keepdim=True)[0] * cutoff_top    # (b, c, 1)
+    min_threshold = cutoff_low * torch.ones_like(class_threshold)   # (b, c, 1)
+    class_threshold = class_threshold.max(min_threshold)            # (b, c, 1)
+    class_threshold = class_threshold.permute(0, 2, 1)              # (b, 1, c)
+
+    # get the max class confidence and score
+    probs, pseudo_label = torch.max(mask, dim=1)                    # (b, h*w)
+    pseudo_label_onehot = tnf.one_hot(pseudo_label, num_classes=c)  # (b, h*w, c)
+    pixel_threshold = torch.sum(class_threshold * pseudo_label_onehot, dim=-1)      # (b, h*w)
+    # if the top score is too low, ignore it
+    pseudo_label[probs < pixel_threshold] = ignore_label             # (b, h*w)
+    if return_type == 'ndarray':
+        ret = pseudo_label.view(bs, h, w).cpu().numpy()
+    else:
+        ret = pseudo_label.view(bs, h, w)
+    return ret
+
+
 def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray', ignore_label=-1):
     """
     Convert continuous mask into binary mask
@@ -215,15 +250,15 @@ def plot_noise_rate(x, acc_list, diffi_list, num_classes=6, block=False):
     # ax1显示y1  ,ax2显示y2
     ax1 = fig.subplots()
     ax2 = ax1.twinx()  # 使用twinx()，得到与ax1 对称的ax2,共用一个x轴，y轴对称（坐标不对称）
-    ax1.plot(x, acc_list, 'ob-', label="Accuracy")
-    ax2.plot(x, diffi_list, 'rs-', label="Difficulty")
+    ax1.plot(x, acc_list, 'b-', label="Accuracy")
+    ax2.plot(x, diffi_list, 'r-', label="Difficulty")
 
     ax1.set_xlabel('Uncertainty')
     ax1.set_ylabel('Accuracy')
     ax2.set_ylabel('Difficulty')
 
     ax1.set_ylim(0, 1.0)
-    # ax2.set_ylim(0, 1.0)
+    ax2.set_ylim(0, 1.0)
 
     plt.xlim(0, math.log(num_classes))  # 限制x坐标轴范围
     # plt.xlim(0, 1.2)  # 限制x坐标轴范围
@@ -302,7 +337,7 @@ def show_tradeoff(unce, diffi, cnt_used_list, t=0.75, gamma=1, block=False):
 
 if __name__ == "__main__":
     analysis_pseudo_labels(label_dir='data/IsprsDA/Vaihingen/ann_dir/train',
-                           pseudo_dir='log/GAST/2vaihingen20231013145427/pseudo_label',
+                           pseudo_dir='log/GAST/2vaihingen/pseudo_label',
                            ignore_label=-1, n_classes=6)
 
     # analysis_pseudo_labels(label_dir='data/IsprsDA/Potsdam/ann_dir/train',

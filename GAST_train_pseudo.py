@@ -24,9 +24,9 @@ from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
 from module.gast.alignment import Aligner
 from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.balance import UVEMLoss, FocalLoss, GHMLoss, loss_calc_uvem
+from module.gast.balance import *
 from module.utils.ema import ExponentialMovingAverage
-from module.gast.domain_balance import examples_cnt, get_target_weight
+# from module.gast.domain_balance import examples_cnt, get_target_weight
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 
@@ -40,20 +40,23 @@ parser.add_argument('--config-path', type=str, default='st.gast.2rural', help='c
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 
 parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
-parser.add_argument('--refine-mode', type=str, default='all',
-                    choices=['s', 'p', 'n', 'l', 'all'], help='refine by prototype, label, or both')
+parser.add_argument('--refine-mode', type=str, default='all', choices=['s', 'p', 'n', 'l', 'all'],
+                    help='refine by prototype, label, or both')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
-
-parser.add_argument('--balance-type', type=str, default='gdp',
-                    choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'none'], help='focal, ohem, ghm, or ours')
-parser.add_argument('--balance-class', type=str2bool, default=1, help='whether balance class')
-parser.add_argument('--balance-pt', type=str2bool, default=1, help='whether re-weight by prototypes')
+# source loss
+parser.add_argument('--ls', type=str, default="CrossEntropy",
+                    choices=['CrossEntropy', 'OhemCrossEntropy'], help='source loss function')
+parser.add_argument('--bcs', type=str2bool, default=0, help='whether balance class for source')
+# target loss
+parser.add_argument('--lt', type=str, default='uvem',
+                    choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'none'], help='target loss function')
+parser.add_argument('--bct', type=str2bool, default=1, help='whether balance class for target')
 parser.add_argument('--class-temp', type=float, default=0.5, help='smooth factor')
 parser.add_argument('--uvem-m', type=float, default=0, help='whether balance class')
 parser.add_argument('--uvem-t', type=float, default=0.7, help='whether balance class')
 parser.add_argument('--uvem-g', type=float, default=4, help='whether balance class')
 
-parser.add_argument('--rm-pseudo', type=str2bool, default=0, help='remove pseudo label directory')
+parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo label directory')
 args = parser.parse_args()
 
 # get config from config.py
@@ -100,28 +103,42 @@ def main():
     )).cuda()
     ema_model = ExponentialMovingAverage(model=model, decay=0.99)
 
-    aligner = Aligner(logger=logger, feat_channels=2048, class_num=class_num,
-                      ignore_label=ignore_label, decay=0.996)
+    aligner = Aligner(logger=logger,
+                      feat_channels=2048,
+                      class_num=class_num,
+                      ignore_label=ignore_label,
+                      decay=0.996)
 
-    loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
-    if args.balance_type in ['ours', 'uvem']:
+    class_balancer_s = ClassBalance(class_num=class_num,
+                                    ignore_label=ignore_label,
+                                    decay=0.99,
+                                    temperature=args.class_temp)
+    class_balancer_t = ClassBalance(class_num=class_num,
+                                    ignore_label=ignore_label,
+                                    decay=0.99,
+                                    temperature=args.class_temp)
+
+    loss_fn_s = eval(args.ls)(ignore_label=ignore_label,
+                              class_balancer=class_balancer_s if args.bcs else None)
+    if args.lt in ['ours', 'uvem']:
         logger.info('>>>>>>> using ours/uvem_loss.')
-        loss_fn_t = UVEMLoss(m=args.uvem_m, threshold=args.uvem_t, gamma=args.uvem_g,
-                             class_balance=args.balance_class, temp=args.class_temp,
-                             class_num=class_num, ignore_label=ignore_label)
-        # loss_fn_t = GDPLoss(bins=30, momentum=0.99, ignore_label=ignore_label, class_num=class_num,
-        #                     class_balance=args.balance_class, prototype_refine=args.balance_pt, temp=args.class_temp)
-    elif args.balance_type == 'focal':
+        loss_fn_t = UVEMLoss(m=args.uvem_m,
+                             threshold=args.uvem_t,
+                             gamma=args.uvem_g,
+                             class_balancer=class_balancer_t if args.bct else None,
+                             class_num=class_num,
+                             ignore_label=ignore_label)
+    elif args.lt == 'ohem':
+        logger.info('>>>>>>> using OhemCrossEntropy.')
+        loss_fn_t = OhemCrossEntropy(ignore_label=ignore_label)
+    elif args.lt == 'focal':
         logger.info('>>>>>>> using FocalLoss.')
-        # loss_fn_s = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
         loss_fn_t = FocalLoss(gamma=2.0, reduction='mean', ignore_label=ignore_label)
-    elif args.balance_type == 'ghm':
+    elif args.lt == 'ghm':
         logger.info('>>>>>>> using GHMLoss.')
-        # loss_fn_s = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
         loss_fn_t = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
     else:
         logger.info('>>>>>>> using CrossEntropyLoss.')
-        # loss_fn_s = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
         loss_fn_t = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
 
     # source loader
@@ -238,15 +255,8 @@ def main():
                 # label_t_hard = aligner.superpixel_expand(label_t_hard, label_t_sup)
 
                 aligner.update_prototype(feat_t, label_t_hard)
-                # aligner.update_prototype_bytarget(feat_t, label_t_soft)
 
                 # loss
-                # if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
-                #     loss_fn_s.set_prototype_weight_4pixel(
-                #         aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
-                # if isinstance(loss_fn_t, UVEMLoss) and args.balance_pt:
-                #     loss_fn_t.set_prototype_weight_4pixel(
-                #         aligner.get_prototype_weight_4pixel(feat_t, label_t_hard, args.refine_temp))
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
                 if isinstance(loss_fn_t, UVEMLoss):
                     loss_pseudo = loss_calc_uvem([pred_t1, pred_t2], label_t_hard, label_t_soft,
@@ -269,19 +279,16 @@ def main():
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
-            # logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
             logger.info(log_loss)
-            # if args.balance_type == 'ours':
-            #     logger.info(f'source domain: {loss_fn_s}')
-            #     logger.info(f'target domain: {loss_fn_t}')
-            # elif args.balance_type in ['ghm', 'gdp', 'ours']:
-            #     if isinstance(loss_fn_s, GDPLoss):
-            #         logger.info(f'source domain: {loss_fn_s.get_g_distribution()}')
-            #     logger.info(f'target domain: {loss_fn_t.get_g_distribution()}')
+            if args.bcs:
+                logger.info(str(loss_fn_s.class_balancer))
+            if args.bct and i_iter >= cfg.FIRST_STAGE_STEP:
+                logger.info(str(loss_fn_t.class_balancer))
+
         if (i_iter + 1) % cfg.EVAL_EVERY == 0 and (i_iter + 1) >= cfg.EVAL_FROM:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(i_iter + 1) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
-            tb = evaluate(model, cfg, True, ckpt_path, logger)
+            evaluate(model, cfg, True, ckpt_path, logger)
             if i_iter + 1 > cfg.FIRST_STAGE_STEP:
                 ema_model.apply_shadow()
                 evaluate(model, cfg, True, ckpt_path, logger)
@@ -293,7 +300,7 @@ def main():
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + str(cfg.NUM_STEPS_STOP) + '.pth')
             torch.save(model.state_dict(), ckpt_path)
             evaluate(model, cfg, True, ckpt_path, logger)
-
+            # restore the ema model
             ema_model.apply_shadow()
             evaluate(model, cfg, True, ckpt_path, logger)
             ema_model.restore()

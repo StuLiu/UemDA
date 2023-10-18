@@ -51,7 +51,7 @@ parser.add_argument('--bcs', type=str2bool, default=0, help='whether balance cla
 parser.add_argument('--lt', type=str, default='uvem',
                     choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'none'], help='target loss function')
 parser.add_argument('--bct', type=str2bool, default=1, help='whether balance class for target')
-parser.add_argument('--class-temp', type=float, default=0.5, help='smooth factor')
+parser.add_argument('--class-temp', type=float, default=2.0, help='smooth factor')
 parser.add_argument('--uvem-m', type=float, default=0, help='whether balance class')
 parser.add_argument('--uvem-t', type=float, default=0.7, help='whether balance class')
 parser.add_argument('--uvem-g', type=float, default=4, help='whether balance class')

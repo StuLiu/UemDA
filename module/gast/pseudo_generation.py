@@ -250,8 +250,8 @@ def plot_noise_rate(x, acc_list, diffi_list, num_classes=6, block=False):
     # ax1显示y1  ,ax2显示y2
     ax1 = fig.subplots()
     ax2 = ax1.twinx()  # 使用twinx()，得到与ax1 对称的ax2,共用一个x轴，y轴对称（坐标不对称）
-    ax1.plot(x, acc_list, 'b-', label="Accuracy")
-    ax2.plot(x, diffi_list, 'r-', label="Difficulty")
+    ax1.plot(x, acc_list, 'b-', label="Accuracy", linewidth=3)
+    ax2.plot(x, diffi_list, 'r-', label="Difficulty", linewidth=3)
 
     ax1.set_xlabel('Uncertainty')
     ax1.set_ylabel('Accuracy')

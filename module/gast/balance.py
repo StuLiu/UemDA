@@ -356,43 +356,43 @@ class UVEMLoss(nn.Module):
 
     def get_weight(self, uncertainties):
         unce_ = uncertainties.clone()
-        unce_[unce_ > self.threshold] = self.threshold      # gated uncertain example removing
-
-        if self.m <= 0:
-            weight_left_ = torch.ones_like(unce_)
-        else:
-            weight_left = torch.zeros_like(unce_)
-            weight_left = torch.where((unce_ <= self.m) & (unce_ >= 0), unce_, weight_left)
-            weight_left2 = (-1 / (self.m ** 2)) * (weight_left - self.m) ** 2 + 1
-            weight_left2 = torch.clamp(weight_left2, min=0.0, max=1.0)
-            weight_left_ = weight_left2 ** (1.0 / self.gamma)
-
-        if self.m >= self.threshold:
-            weight_right_ = torch.ones_like(unce_)
-        else:
-            weight_right = torch.zeros_like(unce_)
-            weight_right = torch.where((unce_ > self.m) & (unce_ <= self.threshold), unce_, weight_right)
-            weight_right2 = (-1 / ((self.threshold - self.m) ** 2)) * (weight_right - self.m) ** 2 + 1
-            weight_right2 = torch.clamp(weight_right2, min=0.0, max=1.0)
-            weight_right_ = weight_right2 ** (1.0 / self.gamma)
 
         # weight_left_ = torch.ones_like(unce_)
         # weight_right_ = torch.ones_like(unce_)
 
-        weight = torch.where(unce_ < self.m, weight_left_, weight_right_)
+        weight_left_ = torch.ones_like(unce_)
+        if self.m > 0:
+            weight_left = torch.where((unce_ <= self.m) & (unce_ >= 0), unce_, weight_left_)
+            weight_left = (-1 / (self.m ** 2)) * (weight_left - self.m) ** 2 + 1
+            weight_left = torch.clamp(weight_left, min=0.0, max=1.0)
+            weight_left_ = weight_left ** (1.0 / self.gamma)
+
+        weight_right_ = torch.zeros_like(unce_)
+        if self.m < self.threshold:
+            weight_right = torch.zeros_like(unce_)
+            weight_right = torch.where((unce_ > self.m) & (unce_ <= self.threshold), unce_, weight_right)
+            weight_right = (-1 / ((self.threshold - self.m) ** 2)) * (weight_right - self.m) ** 2 + 1
+            weight_right = torch.clamp(weight_right, min=0.0, max=1.0)
+            weight_right_ = weight_right ** (1.0 / self.gamma)
+
+
+        weight = torch.where(unce_ <= self.m, weight_left_, weight_right_)
+        # gated uncertain example removing
+        weight = torch.where(unce_ >= self.threshold, torch.zeros_like(unce_), weight)
         if torch.isnan(weight).any():
             print(torch.sum(torch.isnan(weight)))
         return weight
 
-    def drow_weight_curve(self):
+    def drow_weight_curve(self, n=100.0, show=True):
         import numpy as np
         import matplotlib.pyplot as plt
-        n = 1000.0
         unce = [i / n for i in range(int(n))]
         unce_ = torch.from_numpy(np.array(unce)).float().cuda()
         weight_unce = self.get_weight(unce_)
-        plt.plot(unce, weight_unce.cpu().numpy(), "r-", label="weight")  # "r"为红色, "s"为方块, "-"为实线
-        plt.show(block=True)
+        if show:
+            plt.plot(unce, weight_unce.cpu().numpy(), "r-", label="weight")  # "r"为红色, "s"为方块, "-"为实线
+            plt.show(block=True)
+        return weight_unce
 
 
 def loss_calc_uvem(pred, label, label_soft, loss_fn, multi=True):
@@ -437,10 +437,39 @@ if __name__ == '__main__':
     # print('focal loss: ', FL(tnf.cross_entropy(prob, target, reduction='none'), target))
 
     gdp = GDPLoss(momentum=0.9, class_balance=True, prototype_refine=False)
-    uvem = UVEMLoss(m=0.0, threshold=0.7, gamma=4, class_balancer=None, class_num=6, ignore_label=-1)
+    uvem = UVEMLoss(m=0.1, threshold=0.7, gamma=8, class_balancer=None, class_num=6, ignore_label=-1)
     # print('UVEM loss: ', uvem(prob, target, label_t_soft))
     print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=uvem, multi=True))
-    uvem.drow_weight_curve()
+    # uvem.drow_weight_curve()
+
+
+    def drow_weight_curves():
+        ms = [0, 0.2, 0.5, 0.7]
+        gammas = [1.0, 2.0, 4.0, 8.0]
+        # gammas = [1.0]
+        stys = ['deepskyblue', 'forestgreen', 'darkorange', 'red']
+        import numpy as np
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(20, 4))
+        # 画第1个图：折线图
+        n = 100.
+        x = [i / n for i in range(int(n))]
+        for i in range(len(ms)):
+            plt.subplot(140 + i + 1)
+            for j in range(len(gammas)):
+                uvem = UVEMLoss(m=ms[i], threshold=0.7, gamma=gammas[j])
+                plt.plot(x, uvem.drow_weight_curve(show=False).cpu().numpy(),
+                         color=stys[j], label=f'ρ={gammas[j]}', linewidth=3)
+            plt.legend()
+            plt.xlabel('uncertainty')
+            plt.ylabel('valuable weight')
+        plt.show()
+
+
+    drow_weight_curves()
+
     # print(gdp.get_g_distribution())
     #
     # def rand_x_l():

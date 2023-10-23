@@ -7,31 +7,31 @@ TARGET_SET = 'RURAL'
 
 source_dir = dict(
     image_dir=[
-        'data/LoveDA/Train/Urban/images_png/',
+        'data/LoveDA/Train/Urban/images_png',
     ],
     mask_dir=[
-        'data/LoveDA/Train/Urban/masks_png/',
+        'data/LoveDA/Train/Urban/masks_png',
     ],
 )
 target_dir = dict(
     image_dir=[
-        'data/LoveDA/Val/Rural/images_png/',
+        'data/LoveDA/Val/Rural/images_png',
     ],
     mask_dir=[
-        'data/LoveDA/Val/Rural/masks_png/',
+        None,
     ],
 )
 val_dir = dict(
     image_dir=[
-        'data/LoveDA/Train/Rural/images_png/',
+        'data/LoveDA/Train/Rural/images_png',
     ],
     mask_dir=[
-        'data/LoveDA/Train/Rural/masks_png/',
+        'data/LoveDA/Train/Rural/masks_png',
     ],
 )
 test_dir = dict(
     image_dir=[
-        'data/LoveDA/Test/Rural/images_png/'
+        'data/LoveDA/Test/Rural/images_png'
     ],
     mask_dir=[
         None,
@@ -57,7 +57,7 @@ SOURCE_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
 )
 
 
@@ -79,7 +79,7 @@ TARGET_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
 )
 
 PSEUDO_DATA_CONFIG = dict(

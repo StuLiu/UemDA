@@ -305,7 +305,8 @@ def main():
             evaluate(model, cfg, True, ckpt_path, logger)
             ema_model.restore()
             break
-
+        # if (i_iter + 1) >= 4000:
+        #     break
     if args.rm_pseudo:
         logger.info('removing pseudo labels begin >>>>>>>>>>>>')
         shutil.rmtree(save_pseudo_label_path, ignore_errors=True)

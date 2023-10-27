@@ -52,9 +52,10 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(120.8217, 81.8250, 81.2344),
-                  std=(54.7461, 39.3116, 37.9288),
-                  max_pixel_value=1, always_apply=True),
+        Normalize(
+            mean=(100.3855, 85.8122, 91.0087),
+            std=(39.7718, 36.2300, 35.8611)
+        ),
         er.preprocess.albu.ToTensor()
     ]),
     CV=dict(k=10, i=-1),

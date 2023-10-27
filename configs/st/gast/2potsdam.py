@@ -34,8 +34,8 @@ TARGET_DATA_CONFIG = dict(
         mag.RandomVerticalFlip(0.5),
         mag.RandomRotate90(0.5),
         mag.Normalize(
-            mean=(123.675, 116.28, 103.53),
-            std=(58.395, 57.12, 57.375),
+            mean=(97.4604, 86.3829, 92.4078),
+            std=(36.3241, 35.7354, 35.3625),
         ),
     ]),
     CV=dict(k=10, i=-1),

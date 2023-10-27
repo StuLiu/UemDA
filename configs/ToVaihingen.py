@@ -48,8 +48,8 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(97.4603, 86.3828, 92.4078),
-                  std=(36.2062, 35.7308, 35.3348),
+        Normalize(mean=(97.4604, 86.3829, 92.4078),
+                  std=(36.3241, 35.7354, 35.3625),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -70,8 +70,8 @@ TARGET_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(120.8217, 81.8250, 81.2344),
-                  std=(54.7461, 39.3116, 37.9288),
+        Normalize(mean=(100.3855, 85.8122, 91.0087),
+                  std=(39.7718, 36.2300, 35.8611),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -85,8 +85,8 @@ PSEUDO_DATA_CONFIG = dict(
     image_dir=target_dir['image_dir'],
     mask_dir=target_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(120.8217, 81.8250, 81.2344),
-                  std=(54.7461, 39.3116, 37.9288),
+        Normalize(mean=(100.3855, 85.8122, 91.0087),
+                  std=(39.7718, 36.2300, 35.8611),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -100,8 +100,8 @@ EVAL_DATA_CONFIG = dict(
     image_dir=val_dir['image_dir'],
     mask_dir=val_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(120.8217, 81.8250, 81.2344),
-                  std=(54.7461, 39.3116, 37.9288),
+        Normalize(mean=(100.3855, 85.8122, 91.0087),
+                  std=(39.7718, 36.2300, 35.8611),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -115,8 +115,8 @@ TEST_DATA_CONFIG = dict(
     image_dir=test_dir['image_dir'],
     mask_dir=test_dir['mask_dir'],
     transforms=Compose([
-        Normalize(mean=(120.8217, 81.8250, 81.2344),
-                  std=(54.7461, 39.3116, 37.9288),
+        Normalize(mean=(100.3855, 85.8122, 91.0087),
+                  std=(39.7718, 36.2300, 35.8611),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),

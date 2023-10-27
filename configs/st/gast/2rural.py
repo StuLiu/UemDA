@@ -44,7 +44,7 @@ TARGET_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
     pin_memory=True,
     label_type='prob',
     read_sup=True,

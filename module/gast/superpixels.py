@@ -16,7 +16,7 @@ import warnings
 
 from tqdm import tqdm
 from glob import glob
-from module.gast.sin.spixel_deconv import SpixelNet1l_bn
+# from module.gast.sin.spixel_deconv import SpixelNet1l_bn
 
 
 warnings.filterwarnings("ignore")

@@ -118,8 +118,7 @@ def main():
                                     decay=0.99,
                                     temperature=args.class_temp)
 
-    loss_fn_s = eval(args.ls)(ignore_label=ignore_label,
-                              class_balancer=class_balancer_s if args.bcs else None)
+    loss_fn_s = eval(args.ls)(ignore_label=ignore_label, class_balancer=class_balancer_s if args.bcs else None)
     if args.lt in ['ours', 'uvem']:
         logger.info('>>>>>>> using ours/uvem_loss.')
         loss_fn_t = UVEMLoss(m=args.uvem_m,
@@ -139,7 +138,7 @@ def main():
         loss_fn_t = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
     else:
         logger.info('>>>>>>> using CrossEntropyLoss.')
-        loss_fn_t = torch.nn.CrossEntropyLoss(ignore_index=ignore_label, reduction='mean')
+        loss_fn_t = CrossEntropy(ignore_label=ignore_label, class_balancer=class_balancer_t if args.bct else None)
 
     # source loader
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)

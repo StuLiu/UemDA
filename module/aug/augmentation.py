@@ -100,16 +100,12 @@ class CenterCrop(object):
 
 
 class Normalize(object):
-    def __init__(self, mean, std, max_pixel_value=1.0, always_apply=True):
+    def __init__(self, mean, std):
         self.mean = mean
         self.std = std
-        self.max_pixel_value = max_pixel_value
-        self.always_apply = always_apply
 
     def __call__(self, image, target, mask_sup=None):
         image = F.normalize(image, mean=self.mean, std=self.std)
-        if self.always_apply:
-            image = torch.clamp(image, max=self.max_pixel_value)
         return image, target, mask_sup
 
 

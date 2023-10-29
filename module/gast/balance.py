@@ -208,7 +208,7 @@ class GHMLoss(nn.Module):
         # Calculate the GHM loss
         loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
         loss = loss * weights
-        loss = loss.sum() / (weights.sum() + 1e-7)
+        loss = loss.sum()
         return loss
 
     def get_g_distribution(self):

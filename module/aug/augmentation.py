@@ -99,13 +99,26 @@ class CenterCrop(object):
         return image, target, mask_sup
 
 
-class Normalize(object):
+class Normalize2(object):
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
 
     def __call__(self, image, target, mask_sup=None):
         image = F.normalize(image, mean=self.mean, std=self.std)
+        return image, target, mask_sup
+
+
+class Normalize(object):
+    def __init__(self, mean, std, clamp=False):
+        self.mean = mean
+        self.std = std
+        self.clamp = clamp
+
+    def __call__(self, image, target, mask_sup=None):
+        image = F.normalize(image, mean=self.mean, std=self.std)
+        if self.clamp:
+            image = torch.clamp(image, max=1.0)
         return image, target, mask_sup
 
 

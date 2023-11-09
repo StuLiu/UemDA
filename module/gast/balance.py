@@ -208,7 +208,7 @@ class GHMLoss(nn.Module):
         # Calculate the GHM loss
         loss = tnf.cross_entropy(preds, targets, reduction='none', ignore_index=self.ignore_label)
         loss = loss * weights
-        loss = loss.sum()
+        loss = loss.sum() / (torch.sum(targets != -1) + 1e-7)
         return loss
 
     def get_g_distribution(self):
@@ -303,9 +303,48 @@ class GDPLoss(nn.Module):
         return self.acc_sum / (self.acc_sum.sum() + 1e-7), self.bins_weight, str(self.class_balancer)
 
 
+class UPSLoss(nn.Module):
+
+    def __init__(self, threshold=0.7, class_balancer=None, class_num=7, ignore_label=-1):
+        super(UPSLoss, self).__init__()
+        self.threshold = threshold
+        self.class_balancer = class_balancer
+        self.class_num = class_num
+        self.ignore_label = ignore_label
+
+    def forward(self, preds, targets, label_t_soft):
+        """
+        Args:
+            preds: Tensor, (b, c, h, w), without softmax
+            targets: Tensor, (b, h, w)
+            label_t_soft: Tensor, (b, c, h, w), softmax-ed
+        Returns:
+            loss: Tensor, (1,)
+        """
+        # Flatten the prediction and target tensors
+        preds_ = preds.permute((0, 2, 3, 1)).reshape(-1, self.class_num)        # (-1, c)
+        targets_ = targets.view(-1)                                             # (-1,)
+        lts_ = label_t_soft.permute((0, 2, 3, 1)).reshape(-1, self.class_num)   # (-1,)
+        # original cross-entropy loss
+        ce_loss = tnf.cross_entropy(preds_, targets_, reduction='none', ignore_index=self.ignore_label)     # (-1,)
+        # uncertainty-based valuable example mining(UVEM)
+        uncertainty = torch.sum(-lts_ * torch.log(lts_), dim=1).detach()      # (-1,)
+        ce_loss[uncertainty > self.threshold] = 0           # gated uncertain example removing
+        # class balance
+        if self.class_balancer is not None:
+            weight = self.class_balancer.get_class_weight_4pixel(targets_)
+        else:
+            weight = 1.0
+        # compute loss
+        loss = weight * ce_loss
+        valid_cnt = torch.sum((uncertainty <= self.threshold) & (targets_ != self.ignore_label))
+        loss = loss.sum() / (valid_cnt + 1e-7)
+        return loss
+
+
 class UVEMLoss(nn.Module):
 
-    def __init__(self, m=0.1, threshold=0.75, gamma=8.0, class_balancer=None, class_num=7, ignore_label=-1):
+    def __init__(self, m=0.1, threshold=0.7, gamma=8.0, class_balancer=None, class_num=7, ignore_label=-1):
         super(UVEMLoss, self).__init__()
         self.m = m
         self.threshold = threshold
@@ -436,7 +475,12 @@ if __name__ == '__main__':
     FL = FocalLoss()
     # print('focal loss: ', FL(tnf.cross_entropy(prob, target, reduction='none'), target))
 
+
     gdp = GDPLoss(momentum=0.9, class_balance=True, prototype_refine=False)
+
+    ups_ = UPSLoss(threshold=0.7, class_balancer=None, class_num=6, ignore_label=-1)
+    print('ups loss ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=ups_, multi=True))
+
     uvem = UVEMLoss(m=0.1, threshold=0.7, gamma=8, class_balancer=None, class_num=6, ignore_label=-1)
     # print('UVEM loss: ', uvem(prob, target, label_t_soft))
     print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=uvem, multi=True))

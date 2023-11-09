@@ -49,7 +49,7 @@ parser.add_argument('--ls', type=str, default="CrossEntropy",
 parser.add_argument('--bcs', type=str2bool, default=0, help='whether balance class for source')
 # target loss
 parser.add_argument('--lt', type=str, default='uvem',
-                    choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'none'], help='target loss function')
+                    choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'ups', 'none'], help='target loss function')
 parser.add_argument('--bct', type=str2bool, default=1, help='whether balance class for target')
 parser.add_argument('--class-temp', type=float, default=2.0, help='smooth factor')
 parser.add_argument('--uvem-m', type=float, default=0, help='whether balance class')
@@ -136,6 +136,10 @@ def main():
     elif args.lt == 'ghm':
         logger.info('>>>>>>> using GHMLoss.')
         loss_fn_t = GHMLoss(bins=30, momentum=0.99, ignore_label=ignore_label)
+    elif args.lt == 'ups':
+        logger.info('>>>>>>> using UPSLoss.')
+        loss_fn_t = UPSLoss(threshold=0.7, class_balancer=class_balancer_t if args.bct else None,
+                            class_num=class_num, ignore_label=ignore_label)
     else:
         logger.info('>>>>>>> using CrossEntropyLoss.')
         loss_fn_t = CrossEntropy(ignore_label=ignore_label, class_balancer=class_balancer_t if args.bct else None)
@@ -257,7 +261,7 @@ def main():
 
                 # loss
                 loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
-                if isinstance(loss_fn_t, UVEMLoss):
+                if isinstance(loss_fn_t, UVEMLoss) or isinstance(loss_fn_t, UPSLoss):
                     loss_pseudo = loss_calc_uvem([pred_t1, pred_t2], label_t_hard, label_t_soft,
                                                  loss_fn=loss_fn_t, multi=True)
                 else:

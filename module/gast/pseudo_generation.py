@@ -270,7 +270,7 @@ def plot_noise_rate(x, acc_list, diffi_list, num_classes=6, block=False):
         lines.extend(axLine)
         labels.extend(axLabel)
 
-    fig.legend(lines, labels, loc='upper center')
+    # fig.legend(lines, labels, loc='upper center')
 
     # plt.grid(b=True, axis='y')  # 显示网格线
 

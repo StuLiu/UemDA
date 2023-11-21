@@ -50,7 +50,7 @@ if __name__ == '__main__':
     with torch.no_grad():
         img = imread(args.image_path)
         img = trans(image=img)['image'].unsqueeze(dim=0).cuda()
-        cls = pre_slide(model, img, num_classes=class_num, tta=True) if args.slide else model(ret)
+        cls = pre_slide(model, img, num_classes=class_num, tta=True) if args.slide else model(img)
         cls = cls.argmax(dim=1).cpu().numpy().squeeze()
         imsave(os.path.join(args.save_dir, 'prediction.png'), cls.astype(np.uint8))
         viz_op(cls, 'prediction_color.png')

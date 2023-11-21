@@ -54,8 +54,8 @@ SOURCE_DATA_CONFIG = dict(
             RandomRotate90(True)
         ], p=0.75),
         Normalize(
-            mean=(97.4604, 86.3829, 92.4078),
-            std=(36.3241, 35.7354, 35.3625),
+            mean=(123.675, 116.28, 103.53),
+            std=(58.395, 57.12, 57.375),
         ),
         er.preprocess.albu.ToTensor()
     ]),

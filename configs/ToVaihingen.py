@@ -18,7 +18,7 @@ target_dir = dict(
         'data/IsprsDA/Vaihingen/img_dir/train',
     ],
     mask_dir=[
-        None,
+        'data/IsprsDA/Vaihingen/ann_dir/train',
     ],
 )
 val_dir = dict(

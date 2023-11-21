@@ -6,7 +6,6 @@
 @E-mail  : liuwa@hnu.edu.cn
 """
 import logging
-import shutil
 
 import torch.multiprocessing
 
@@ -165,121 +164,40 @@ def main():
 
     optimizer = optim.SGD(model.parameters(),
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
-    for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
+
+    for i_iter in tqdm(range(cfg.FIRST_STAGE_STEP)):
 
         lmd_1 = portion_warmup(i_iter=i_iter, start_iter=0, end_iter=cfg.NUM_STEPS_STOP)
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
+        # Train with Source
+        # source infer
+        batch = sourceloader_iter.next()
+        images_s, label_s = batch[0]
+        images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
+        pred_s1, pred_s2, feat_s = model(images_s)
 
-        if i_iter < cfg.FIRST_STAGE_STEP:
-            # Train with Source
+        # update prototypes
+        aligner.update_prototype(feat_s, label_s)
 
-            # source infer
-            batch = sourceloader_iter.next()
-            images_s, label_s = batch[0]
-            images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
-            pred_s1, pred_s2, feat_s = model(images_s)
+        # target infer
+        batch = targetloader_iter.next()
+        images_t, _ = batch[0]
+        images_t = images_t.cuda()
+        _, _, feat_t = model(images_t)
 
-            # update prototypes
-            # print(label_s.unique())
-            aligner.update_prototype(feat_s, label_s)
+        loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
 
-            # target infer
-            batch = targetloader_iter.next()
-            images_t, _ = batch[0]
-            images_t = images_t.cuda()
-            _, _, feat_t = model(images_t)
+        loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
+        loss = loss_seg + lmd_1 * loss_domain
 
-            # # Loss: source segmentation + global alignment
-            # if isinstance(loss_fn_s, GDPLoss) and args.balance_pt:
-            #     loss_fn_s.set_prototype_weight_4pixel(
-            #         aligner.get_prototype_weight_4pixel(feat_s, label_s, args.refine_temp))
-            loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
-
-            loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-            loss = loss_seg + lmd_1 * loss_domain
-
-            optimizer.zero_grad()
-            loss.backward()
-            clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                      max_norm=35, norm_type=2)
-            optimizer.step()
-            log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
-                       f'loss_domain={loss_domain:.3e}, ' \
-                       f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
-        else:
-            log_loss = ''
-            lmd_2 = portion_warmup(i_iter=i_iter, start_iter=cfg.FIRST_STAGE_STEP, end_iter=cfg.NUM_STEPS_STOP)
-            # Second Stage
-            if i_iter == cfg.FIRST_STAGE_STEP:
-                logger.info('###### Start the Second Stage in round {}! ######'.format(i_iter))
-                ema_model.register()
-            # Generate pseudo label
-            if i_iter == cfg.FIRST_STAGE_STEP or i_iter % cfg.GENERATE_PSEDO_EVERY == 0:
-                logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
-                ema_model.apply_shadow()
-                # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
-                                    size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True, ignore_label=ignore_label)
-                ema_model.restore()
-                shutil.copytree(save_pseudo_label_path + '_color', f'{save_pseudo_label_path}_color_{i_iter}')
-                # save finish
-                target_config = cfg.TARGET_DATA_CONFIG
-                target_config['mask_dir'] = [save_pseudo_label_path]
-                logger.info(target_config)
-                targetloader = DALoader(target_config, cfg.DATASETS)
-                targetloader_iter = Iterator(targetloader)
-                logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
-            torch.cuda.synchronize()
-
-            # Train with source and target domain
-            if i_iter < cfg.NUM_STEPS_STOP:
-                model.train()
-                # source output
-                batch_s = sourceloader_iter.next()
-                images_s, label_s = batch_s[0]
-                images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
-                # target output
-                batch_t = targetloader_iter.next()
-                images_t, label_t = batch_t[0]
-                images_t, label_t_soft, label_t_sup = images_t.cuda(), label_t['cls'].cuda(), label_t['sup'].cuda()
-
-                # model forward
-                # source
-                pred_s1, pred_s2, feat_s = model(images_s)
-                # target
-                pred_t1, pred_t2, feat_t = model(images_t)
-
-                label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
-                                                    refine=args.refine_label,
-                                                    mode=args.refine_mode,
-                                                    temp=args.refine_temp)
-                label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
-                                                return_type='tensor', ignore_label=ignore_label)
-
-                # label_t_hard = aligner.superpixel_expand(label_t_hard, label_t_sup)
-
-                aligner.update_prototype(feat_t, label_t_hard)
-
-                # loss
-                loss_source = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
-                if isinstance(loss_fn_t, UVEMLoss) or isinstance(loss_fn_t, UPSLoss):
-                    loss_pseudo = loss_calc_uvem([pred_t1, pred_t2], label_t_hard, label_t_soft,
-                                                 loss_fn=loss_fn_t, multi=True)
-                else:
-                    loss_pseudo = loss_calc([pred_t1, pred_t2], label_t_hard, loss_fn=loss_fn_t, multi=True)
-                loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
-                loss = loss_source + lmd_2 * loss_pseudo + lmd_1 * loss_domain
-
-                optimizer.zero_grad()
-                loss.backward()
-                clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                          max_norm=35, norm_type=2)
-                optimizer.step()
-                log_loss = f'iter={i_iter + 1}, total={loss:.3f}, source={loss_source:.3f}, pseudo={loss_pseudo:.3f},' \
-                           f' domain={loss_domain:.3e},' \
-                           f' lr = {lr:.3e}, lmd_1={lmd_1:.3f}, lmd_2={lmd_2:.3f}'
-
-                ema_model.update()
+        optimizer.zero_grad()
+        loss.backward()
+        clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
+                                  max_norm=35, norm_type=2)
+        optimizer.step()
+        log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+                   f'loss_domain={loss_domain:.3e}, ' \
+                   f'lr={lr:.3e}, lmd_1={lmd_1:.3f}'
 
         # logging training process, evaluating and saving
         if i_iter == 0 or i_iter == cfg.FIRST_STAGE_STEP or (i_iter + 1) % 50 == 0:
@@ -311,10 +229,6 @@ def main():
             break
         # if (i_iter + 1) >= 4000:
         #     break
-    if args.rm_pseudo:
-        logger.info('removing pseudo labels begin >>>>>>>>>>>>')
-        shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
-        logger.info('removing pseudo labels end <<<<<<<<<<<<<<')
 
     logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
 

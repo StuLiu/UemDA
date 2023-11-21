@@ -481,7 +481,7 @@ if __name__ == '__main__':
     ups_ = UPSLoss(threshold=0.7, class_balancer=None, class_num=6, ignore_label=-1)
     print('ups loss ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=ups_, multi=True))
 
-    uvem = UVEMLoss(m=0.1, threshold=0.7, gamma=8, class_balancer=None, class_num=6, ignore_label=-1)
+    uvem = UVEMLoss(m=0.2, threshold=0.7, gamma=8, class_balancer=None, class_num=6, ignore_label=-1)
     # print('UVEM loss: ', uvem(prob, target, label_t_soft))
     print('UVEM loss: ', loss_calc_uvem([prob, prob], target, label_t_soft_, loss_fn=uvem, multi=True))
     # uvem.drow_weight_curve()
@@ -513,6 +513,44 @@ if __name__ == '__main__':
 
 
     drow_weight_curves()
+
+
+    def drow_weight_curves2():
+        ms = 0.2
+        gammas = [1.0, 2.0, 4.0, 8.0]
+        # gammas = [1.0]
+        stys = ['deepskyblue', 'forestgreen', 'darkorange', 'red']
+        import numpy as np
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        # 画第1个图：折线图
+        n = 100.
+        x = [i / n for i in range(int(n))]
+
+        fig = plt.figure(figsize=(4, 4))
+
+        # ax1显示y1  ,ax2显示y2
+        ax1 = fig.subplots()
+        ax2 = ax1.twinx()  # 使用twinx()，得到与ax1 对称的ax2,共用一个x轴，y轴对称（坐标不对称）
+        # ax1.plot(x, acc_list, 'b-', label="Accuracy", linewidth=3)
+
+
+        ax1.set_xlabel('uncertainty', fontdict={'family' : 'Times New Roman', 'size'   : 12})
+        ax1.set_ylabel('valuable weight', fontdict={'family' : 'Times New Roman', 'size'   : 12})
+
+        ax1.set_ylim(0, 1.0)
+        ax2.set_ylim(0, 1.0)
+
+        print('showed')
+        for j in range(len(gammas)):
+            uvem = UVEMLoss(m=ms, threshold=0.7, gamma=gammas[j])
+            ax1.plot(x, uvem.drow_weight_curve(show=False).cpu().numpy(),
+                     color=stys[j], label=f'ρ={gammas[j]}', linewidth=3)
+
+        plt.show()
+
+    drow_weight_curves2()
 
     # print(gdp.get_g_distribution())
     #

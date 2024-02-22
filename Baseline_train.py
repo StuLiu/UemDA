@@ -1,12 +1,11 @@
-import argparse
 import torch.optim as optim
 import os.path as osp
-from module.models.Encoder import Deeplabv2
-from module.datasets.loveda import LoveDALoader
+from uemda.models.Encoder import Deeplabv2
+from uemda.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-from module.utils.tools import *
+from uemda.utils.tools import *
 from tqdm import tqdm
-from eval import evaluate
+from uemda.utils.eval import evaluate
 import torch.nn as nn
 
 parser = argparse.ArgumentParser(description='Run Baseline methods.')

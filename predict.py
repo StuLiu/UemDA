@@ -1,9 +1,9 @@
 import warnings
-from module.datasets import LoveDA
-from module.datasets.daLoader import DALoader
-from module.utils.tools import *
+from uemda.datasets import LoveDA
+from uemda.datasets.daLoader import DALoader
+from uemda.utils.tools import *
 from skimage.io import imsave
-from module.models.Encoder import Deeplabv2
+from uemda.models.Encoder import Deeplabv2
 from argparse import ArgumentParser
 
 

@@ -1,5 +1,5 @@
 from configs.ToPotsdam import *
-import module.aug.augmentation as mag
+import uemda.aug.augmentation as mag
 
 
 MODEL = 'ResNet101'

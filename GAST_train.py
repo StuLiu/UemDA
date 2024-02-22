@@ -5,20 +5,19 @@
 @Author  : WangLiu
 @E-mail  : liuwa@hnu.edu.cn
 """
-import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
+from uemda.utils.eval import evaluate
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
 # from module.dca_modules import *
-from module.datasets.loveda import LoveDALoader
+from uemda.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
-from module.gast.alignment import Aligner
+from uemda.gast.alignment import Aligner
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run GAST methods.')

@@ -5,27 +5,23 @@
 @Author  : WangLiu
 @E-mail  : liuwa@hnu.edu.cn
 """
-import logging
 
 import torch.multiprocessing
 
-import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
-from module.datasets.daLoader import DALoader
-from module.datasets import LoveDA, IsprsDA
+from uemda.utils.eval import evaluate
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
+from uemda.datasets.daLoader import DALoader
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 # from module.viz import VisualizeSegmm
-from module.gast.alignment import Aligner
-from module.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from module.gast.balance import *
-from module.utils.ema import ExponentialMovingAverage
+from uemda.gast.alignment import Aligner
+from uemda.gast.balance import *
+from uemda.utils.ema import ExponentialMovingAverage
 # from module.gast.domain_balance import examples_cnt, get_target_weight
 
 # palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()

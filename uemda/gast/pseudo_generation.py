@@ -15,10 +15,10 @@ import math
 
 from glob import glob
 import matplotlib.pyplot as plt
-from module.utils.tools import *
-from module.viz import VisualizeSegmm
-from module.datasets import *
-from module.utils.tools import AverageMeter
+from uemda.utils.tools import *
+from uemda.viz import VisualizeSegmm
+from uemda.datasets import *
+from uemda.utils.tools import AverageMeter
 
 
 def pseudo_selection1(mask, cutoff_top=0.8, cutoff_low=0.6, return_type='ndarray', ignore_label=-1):

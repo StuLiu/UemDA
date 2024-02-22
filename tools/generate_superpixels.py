@@ -6,7 +6,7 @@
 @Date    : 2023/10/7 下午5:22
 @e-mail  : 1183862787@qq.com
 """
-from module.gast.superpixels import get_superpixels
+from uemda.gast.superpixels import get_superpixels
 
 
 if __name__ == '__main__':

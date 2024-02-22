@@ -11,9 +11,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as tnf
 from torch_scatter import scatter
-from module.gast.class_ware_whiten import ClassWareWhitening
-from module.gast.coral import CoralLoss
-from module.gast.pseudo_generation import pseudo_selection
+from uemda.gast.class_ware_whiten import ClassWareWhitening
+from uemda.gast.coral import CoralLoss
+from uemda.gast.pseudo_generation import pseudo_selection
 # from module.gast.superpixels import SuperPixelsModel
 
 
@@ -479,7 +479,7 @@ class DownscaleLabel(nn.Module):
 
 
 if __name__ == '__main__':
-    from module.models.Encoder import Deeplabv2
+    from uemda.models.Encoder import Deeplabv2
     import torch.optim as optim
     import logging
 
@@ -582,7 +582,7 @@ if __name__ == '__main__':
     print('grad of loss instance')
     print('=========================================================')
 
-    from module.utils.tools import loss_calc
+    from uemda.utils.tools import loss_calc
 
     for i in range(2):
         x_s, x_t, l_s, l_t = rand_x_l()

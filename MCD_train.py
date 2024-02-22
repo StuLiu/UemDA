@@ -1,11 +1,10 @@
-import argparse
 import torch.optim as optim
 import os.path as osp
-from module.models.Deeplabv2_MMD import Deeplabv2_MMD
-from module.datasets.loveda import LoveDALoader
-from module.utils.tools import *
+from uemda.models.Deeplabv2_MMD import Deeplabv2_MMD
+from uemda.datasets.loveda import LoveDALoader
+from uemda.utils.tools import *
 from ever.core.iterator import Iterator
-from eval import evaluate
+from uemda.utils.eval import evaluate
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 import torch.backends.cudnn as cudnn

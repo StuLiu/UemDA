@@ -34,19 +34,19 @@ import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 # from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
-from module.datasets.daLoader import DALoader
-from module.datasets import LoveDA, IsprsDA
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
+from uemda.datasets.daLoader import DALoader
+from uemda.datasets import LoveDA, IsprsDA
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
-from module.viz import VisualizeSegmm
-from module.gast.alignment import Aligner
-from module.gast.pseudo_generation import pseudo_selection
-from module.gast.balance import *
-from module.utils.ema import ExponentialMovingAverage
-from module.utils.tools import pad_image
+from uemda.viz import VisualizeSegmm
+from uemda.gast.alignment import Aligner
+from uemda.gast.pseudo_generation import pseudo_selection
+from uemda.gast.balance import *
+from uemda.utils.ema import ExponentialMovingAverage
+from uemda.utils.tools import pad_image
 
 
 # --config-path st.gast.2urban --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 0.5

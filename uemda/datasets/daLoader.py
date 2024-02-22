@@ -20,7 +20,7 @@ from torch.utils.data import SequentialSampler, RandomSampler
 from ever.api.data import CrossValSamplerGenerator
 import numpy as np
 import logging
-from module.datasets import LoveDA, IsprsDA
+from uemda.datasets import LoveDA, IsprsDA
 
 
 logger = logging.getLogger(__name__)

@@ -163,7 +163,7 @@ class PixelContrastLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    from module.models.Encoder import Deeplabv2
+    from uemda.models.Encoder import Deeplabv2
     import torch.optim as optim
 
     model = Deeplabv2(dict(

@@ -56,8 +56,8 @@ class TripletLoss(nn.Module):
 
 
 if __name__ == '__main__':
-    from module.models.Encoder import Deeplabv2
-    from module.gast.alignment import DownscaleLabel
+    from uemda.models.Encoder import Deeplabv2
+    from uemda.gast.alignment import DownscaleLabel
     import torch.optim as optim
 
     model = Deeplabv2(dict(

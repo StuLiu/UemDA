@@ -43,8 +43,8 @@ def vis_dir(input_dir, palette, offset=0):
 
 
 if __name__ == '__main__':
-    from module.datasets.loveda import LoveDA
-    from module.datasets.isprsda import IsprsDA
+    from uemda.datasets.loveda import LoveDA
+    from uemda.datasets.isprsda import IsprsDA
 
     # vis_dir(input_dir='../data/LoveDA/Train/Rural/masks_png', palette=LoveDA.PALETTE, offset=-1)
     # vis_dir(input_dir='../data/LoveDA/Train/Urban/masks_png', palette=LoveDA.PALETTE, offset=-1)

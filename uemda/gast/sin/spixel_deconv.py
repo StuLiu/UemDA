@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.init import kaiming_normal_, constant_
-from module.gast.sin.model_util import *
+from uemda.gast.sin.model_util import *
 # from train_util import *
 
 # define the function includes in import *

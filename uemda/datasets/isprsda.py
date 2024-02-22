@@ -8,7 +8,7 @@
 """
 import logging
 import numpy as np
-from module.datasets.basedata import BaseData
+from uemda.datasets.basedata import BaseData
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)

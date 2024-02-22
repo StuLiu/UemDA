@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import ever as er
-from module.resnet import ResNetEncoder
+from uemda.resnet import ResNetEncoder
 
 
 class PPMBilinear(nn.Module):

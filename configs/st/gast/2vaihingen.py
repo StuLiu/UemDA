@@ -1,25 +1,24 @@
 from configs.ToVaihingen import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
     PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir, DATASETS
-import module.aug.augmentation as mag
+import uemda.aug.augmentation as mag
 
 
 MODEL = 'ResNet101'
 
 IGNORE_LABEL = -1
 MOMENTUM = 0.9
-# NUM_CLASSES = 7
 
 SNAPSHOT_DIR = './log/GAST/2vaihingen'
 
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
-NUM_STEPS = 15000           # for learning rate poly
-NUM_STEPS_STOP = 10000      # Use damping instead of early stopping
-FIRST_STAGE_STEP = 4000     # for first stage
-PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
+STAGE1_STEPS = 4000
+STAGE2_STEPS = 10000
+STAGE3_STEPS = 6000
+NUM_STEPS = None        # for learning rate poly
+PREHEAT_STEPS = None    # for warm-up
 POWER = 0.9                 # lr poly power
-EVAL_FROM = 0               # int(NUM_STEPS_STOP * 0.6) - 1
 EVAL_EVERY = 1000
 GENERATE_PSEDO_EVERY = 1000
 CUTOFF_TOP = 0.8

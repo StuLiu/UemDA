@@ -1,15 +1,14 @@
-import argparse
 from torch.autograd import Variable
 import torch.optim as optim
 import os.path as osp
 # from module.CLAN_G import Deeplabv2
-from module.models.Encoder import Deeplabv2
-from module.models.Discriminator import FCDiscriminator
-from module.datasets.loveda import LoveDALoader
+from uemda.models.Encoder import Deeplabv2
+from uemda.models.Discriminator import FCDiscriminator
+from uemda.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-from module.utils.tools import *
+from uemda.utils.tools import *
 from tqdm import tqdm
-from eval import evaluate
+from uemda.utils.eval import evaluate
 from torch.nn.utils import clip_grad
 
 

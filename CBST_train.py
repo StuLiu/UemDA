@@ -1,19 +1,17 @@
-import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import math
-from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
-from module.datasets import LoveDA, IsprsDA
-from module.datasets.daLoader import DALoader
+from uemda.utils.eval import evaluate
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
+from uemda.datasets.daLoader import DALoader
 # from module.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 from skimage.io import imsave
-from module.viz import VisualizeSegmm
+from uemda.viz import VisualizeSegmm
 
 
 parser = argparse.ArgumentParser(description='Run CBST methods.')

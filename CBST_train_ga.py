@@ -6,18 +6,17 @@
 @Date    : 2023/3/13 下午8:40
 @e-mail  : 1183862787@qq.com
 """
-import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import math
 
-from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
-from module.gast.alignment import Aligner
-from module.datasets.loveda import LoveDALoader
-from module.utils.tools import COLOR_MAP
+from uemda.utils.eval import evaluate
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
+from uemda.gast.alignment import Aligner
+from uemda.datasets.loveda import LoveDALoader
+from uemda.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad

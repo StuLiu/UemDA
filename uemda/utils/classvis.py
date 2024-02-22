@@ -13,9 +13,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings; warnings.filterwarnings(action='always')
-from module.datasets import IsprsDA, LoveDA
-from module.datasets.daLoader import DALoader
-from module.utils.tools import AverageMeter
+from uemda.datasets import IsprsDA, LoveDA
+from uemda.datasets.daLoader import DALoader
+from uemda.utils.tools import AverageMeter
 import glob
 import cv2
 from tqdm import tqdm

@@ -72,7 +72,7 @@ class BaseData(Dataset):
         if len(self.cls_filepath_list) > 0:
             if self.label_type == 'id':
                 # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
-                mask = imread(self.cls_filepath_list[idx]).astype(np.long) + self.offset
+                mask = imread(self.cls_filepath_list[idx]).astype(np.int64) + self.offset
             else:
                 # mask = torch.from_numpy(np.load(f'{self.cls_filepath_list[idx]}.npy')).float()
                 mask = torch.load(f'{self.cls_filepath_list[idx]}.pt', map_location=torch.device('cpu'))

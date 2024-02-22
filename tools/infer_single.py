@@ -4,10 +4,10 @@ import os
 from argparse import ArgumentParser
 from skimage.io import imsave, imread
 
-from module.datasets import *
-from module.utils.tools import *
-from module.viz import VisualizeSegmm
-from module.models.Encoder import Deeplabv2
+from uemda.datasets import *
+from uemda.utils.tools import *
+from uemda.viz import VisualizeSegmm
+from uemda.models.Encoder import Deeplabv2
 
 
 if __name__ == '__main__':

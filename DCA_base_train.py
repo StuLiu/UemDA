@@ -8,20 +8,19 @@
 # @Author  : WangLiu
 
 import cv2
-import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-from eval import evaluate
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
-from module.dca_modules import *
-from module.datasets.loveda import LoveDALoader
-from module.utils.tools import COLOR_MAP
+from uemda.utils.eval import evaluate
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
+from uemda.dca_modules import *
+from uemda.datasets.loveda import LoveDALoader
+from uemda.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
-from module.viz import VisualizeSegmm
+from uemda.viz import VisualizeSegmm
 
 palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run MY methods.')

@@ -3,21 +3,20 @@ define the convolutinal gaussian blur
 define the softmax loss
 
 '''
-from module.datasets.loveda import LoveDALoader
+from uemda.datasets.loveda import LoveDALoader
 from ever.core.iterator import Iterator
-import argparse
 from torch.autograd import Variable
 
 import torch.nn.functional as F
 import pandas as pd
-from module.utils.tools import *
-from module.models.Encoder import Deeplabv2
+from uemda.utils.tools import *
+from uemda.models.Encoder import Deeplabv2
 import torch.optim as optim
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 import os.path as osp
 import torch
-from eval import evaluate
+from uemda.utils.eval import evaluate
 
 parser = argparse.ArgumentParser(description='Run CLAN methods.')
 

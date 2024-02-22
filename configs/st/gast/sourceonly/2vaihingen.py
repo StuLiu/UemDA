@@ -1,6 +1,6 @@
 from configs.ToVaihingen import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
     PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir, DATASETS
-import module.aug.augmentation as mag
+import uemda.aug.augmentation as mag
 
 
 MODEL = 'ResNet101'

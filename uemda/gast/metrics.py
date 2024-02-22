@@ -62,4 +62,4 @@ class PixelMetricIgnore(PixelMetric):
 
         self._log_summary(tb, dense_cm)
 
-        return tb
+        return tb, miou

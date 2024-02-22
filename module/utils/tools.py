@@ -173,7 +173,7 @@ def mixup(s_img, s_lab, t_img, t_lab):
 def import_config(config_name, prefix='configs', copy=True, create=True):
     cfg_path = '{}.{}'.format(prefix, config_name)
     m = importlib.import_module(name=cfg_path)
-    m.SNAPSHOT_DIR += get_curr_time()
+    # m.SNAPSHOT_DIR += get_curr_time()
     if create:
         os.makedirs(m.SNAPSHOT_DIR, exist_ok=True)
     if copy:

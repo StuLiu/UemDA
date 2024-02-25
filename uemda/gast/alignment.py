@@ -23,7 +23,7 @@ from uemda.gast.pseudo_generation import pseudo_selection
 
 class Aligner:
 
-    def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1, decay=0.999, topk=32):
+    def __init__(self, logger, feat_channels=64, class_num=7, ignore_label=-1, decay=0.999, topk=32, resume=None):
 
         # channel number of feature maps
         self.feat_channels = feat_channels
@@ -52,7 +52,12 @@ class Aligner:
         # self.eps_max = torch.FloatTensor([1e7]).cuda()[0]
 
         # prototypes for all classes. Note that, the prototypes is computed by source features only.
-        self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
+        if resume:
+            self.prototypes = torch.load(resume, map_location='cpu').cuda()
+            self.logger.info(f'finish init prototypes!')
+            self.logger.info(f'prototypes({self.prototypes.shape})={self.prototypes}')
+        else:
+            self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         # downscale for gt label with full size
         self.downscale_gt = DownscaleLabel(scale_factor=16, n_classes=7, ignore_label=ignore_label, min_ratio=0.75)
@@ -67,6 +72,9 @@ class Aligner:
         # superpixel model
         # self.sp_model = SuperPixelsModel(model_type='LSC')
 
+        self._data_sum = torch.zeros([self.class_num, self.feat_channels], requires_grad=False).cuda()
+        self._data_cnt = torch.zeros([self.class_num, 1], requires_grad=False).cuda()
+
     def align_domain(self, feat_s, feat_t):
         assert feat_s.shape == feat_t.shape, 'tensor "feat_s" has the same shape as tensor "feat_t"'
         assert len(feat_s.shape) == 4, 'tensor "feat_s" and "feat_t" must have 4 dimensions'
@@ -78,6 +86,7 @@ class Aligner:
         """Update global prototypes by source features and labels."""
         label = self.downscale_gt(label)  # (b, 16*h, 16*w) -> (b, 1, h, w)
         self._compute_local_prototypes(feat, label, update=True, decay=self.decay)
+        return label
 
     def update_prototype_bytarget(self, feat_t, label_t_soft):
         """Update global prototypes by source features and labels.
@@ -93,6 +102,27 @@ class Aligner:
         label_t_soft_down = label_t_soft_down.permute(0, 2, 3, 1).reshape(-1, c, 1)
         local_prototype = torch.mean(feat_t_flatten * label_t_soft_down, dim=0)  # (c, k)
         self.prototypes = self._ema(self.prototypes, local_prototype, self.decay).detach()
+
+    def update_avg(self, feat, label) -> None:
+        """Update global prototypes by source features and labels."""
+        b, k, h, w = feat.shape
+        feats = feat.permute(0, 2, 3, 1).reshape(-1, k)     # (b*h*w, k)
+        feats = feats.unsqueeze(dim=1)                      # (b*h*w, 1, k)
+
+        labels = self.downscale_gt(label)                   # (b, 16*h, 16*w) -> (b, 1, h, w)
+        labels = self._index2onehot(labels)                 # (b, 1, h, w) -> (b*h*w, c)
+        labels = labels.unsqueeze(dim=-1)                   # -> (b*h*w, c, 1)
+        n_instance = torch.sum(labels, dim=0)               # (c, 1)
+
+        self._data_sum = self._data_sum + torch.sum(feats * labels, dim=0).detach()      # (c, k)
+        self._data_cnt = self._data_cnt + n_instance
+
+    def init_avg(self):
+        self.prototypes = self._data_sum / (self._data_cnt + self.eps)
+
+        self.logger.info(f'finish init prototypes!')
+        self.logger.info(f'examples cnt({self._data_cnt.shape})={self._data_cnt}')
+        self.logger.info(f'prototypes({self.prototypes.shape})={self.prototypes}')
 
     def align_class(self, feat_s, label_s, feat_t=None, label_t=None):
         """ Compute the loss for class level alignment.

@@ -82,7 +82,7 @@ class BaseData(Dataset):
             # read superpixel label
             mask_sup = None
             if self.read_sup:
-                mask_sup = imread(self.sup_filepath_list[idx]).astype(np.long)
+                mask_sup = imread(self.sup_filepath_list[idx]).astype(np.int64)
                 mask_sup = torch.from_numpy(mask_sup).unsqueeze(dim=0).long()
             # data augmentation
             if self.transforms is not None:

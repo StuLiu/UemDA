@@ -3,7 +3,7 @@ from albumentations import *
 import ever as er
 
 DATASETS = 'LoveDA'
-TARGET_SET = 'URBAN'
+TARGET_SET = 'Urban'
 
 source_dir = dict(
     image_dir=[

@@ -112,8 +112,8 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
     model.eval()
 
     save_pseudo_color_path = save_pseudo_label_path + '_color'
-    if not os.path.exists(save_pseudo_color_path):
-        os.makedirs(save_pseudo_color_path)
+    os.makedirs(save_pseudo_label_path, exist_ok=True)
+    os.makedirs(save_pseudo_color_path, exist_ok=True)
     viz_op = VisualizeSegmm(save_pseudo_color_path, eval(_cfg.DATASETS).PALETTE)
     num_classes = len(eval(_cfg.DATASETS).LABEL_MAP)
 
@@ -142,8 +142,8 @@ def gener_target_pseudo(_cfg, model, pseudo_loader, save_pseudo_label_path,
             else:
                 # pseudo selection, from -1~6
                 if _cfg.PSEUDO_SELECT:
-                    lbl = pseudo_selection(cls, ignore_label=ignore_label)  # (b, h, w)
-                    cls = lbl.cpu().numpy()  # (b, h, w)
+                    cls = pseudo_selection(cls, ignore_label=ignore_label)  # (b, h, w)
+                    # cls = lbl.cpu().numpy()  # (b, h, w)
                 else:
                     cls = cls.argmax(dim=1).cpu().numpy()
 

@@ -20,7 +20,7 @@ NUM_STEPS = None        # for learning rate poly
 PREHEAT_STEPS = None    # for warm-up
 POWER = 0.9                 # lr poly power
 EVAL_EVERY = 500
-GENERATE_PSEDO_EVERY = 500
+GENE_EVERY = 1000
 CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
 

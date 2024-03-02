@@ -15,16 +15,17 @@ from uemda.utils.eval import evaluate
 from uemda.utils.tools import *
 from uemda.models.Encoder import Deeplabv2
 from uemda.dca_modules import *
-from uemda.datasets.loveda import LoveDALoader
-from uemda.utils.tools import COLOR_MAP
+from uemda.datasets.daLoader import DALoader
+from uemda.datasets import *
+# from uemda.utils.tools import COLOR_MAP
 from ever.core.iterator import Iterator
 from tqdm import tqdm
 from torch.nn.utils import clip_grad
 from uemda.viz import VisualizeSegmm
+from uemda.gast.pseudo_generation import gener_target_pseudo
 
-palette = np.asarray(list(COLOR_MAP.values())).reshape((-1,)).tolist()
 parser = argparse.ArgumentParser(description='Run DCA methods.')
-parser.add_argument('--config-path', type=str, default='st.dca.2urban',
+parser.add_argument('--config-path', type=str, default='st.dca.2vaihingen',
                     help='config path')
 args = parser.parse_args()
 cfg = import_config(args.config_path)
@@ -38,11 +39,19 @@ def main():
     logger = get_console_file_logger(name='DCA', logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
 
+    ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
+    class_num = len(eval(cfg.DATASETS).LABEL_MAP)
+
+    model_name = str(cfg.MODEL).lower()
+    if model_name == 'resnet':
+        model_name = 'resnet50'
+    logger.info(model_name)
+
     cudnn.enabled = True
 
     model = Deeplabv2(dict(
         backbone=dict(
-            resnet_type='resnet50',
+            resnet_type=model_name,
             output_stride=16,
             pretrained=True,
         ),
@@ -50,22 +59,27 @@ def main():
         cascade=False,
         use_ppm=True,
         ppm=dict(
-            num_classes=7,
+            num_classes=class_num,
             use_aux=False,
             fc_dim=2048,
         ),
         inchannels=2048,
-        num_classes=7
+        num_classes=class_num,
+        is_ins_norm=True,
     )).cuda()
 
+    from uemda.gast.balance import CrossEntropy
+    loss_fn = CrossEntropy(ignore_label=ignore_label, class_balancer=None)
+
+    # palette = np.asarray(list(eval(cfg.DATASETS).COLOR_MAP.values())).reshape((-1,)).tolist()
     # source loader
-    trainloader = LoveDALoader(cfg.SOURCE_DATA_CONFIG)
+    trainloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     trainloader_iter = Iterator(trainloader)
     # eval loader (target)
-    pseudo_loader = LoveDALoader(cfg.PSEUDO_DATA_CONFIG)
+    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
     # target loader
-    targetloader = None
-    targetloader_iter = None
+    targetloader = DALoader(cfg.TARGET_DATA_CONFIG, cfg.DATASETS)
+    targetloader_iter = Iterator(targetloader)
 
     epochs = cfg.NUM_STEPS_STOP / len(trainloader)
     logger.info('epochs ~= %.3f' % epochs)
@@ -75,7 +89,7 @@ def main():
     optimizer.zero_grad()
 
     for i_iter in tqdm(range(cfg.NUM_STEPS_STOP)):
-        if i_iter <= cfg.FIRST_STAGE_STEP:
+        if i_iter < cfg.FIRST_STAGE_STEP:
             # Train with Source
             optimizer.zero_grad()
             lr = adjust_learning_rate(optimizer, i_iter, cfg)
@@ -84,8 +98,8 @@ def main():
             preds1, preds2, feats = model(images_s.cuda())
 
             # Loss: segmentation + regularization
-            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), multi=True)
-            source_intra = ICR([preds1, preds2, feats],
+            loss_seg = loss_calc([preds1, preds2], labels_s['cls'].cuda(), loss_fn, multi=True)
+            source_intra = ICR([preds1, preds2, feats], num_classes=class_num,
                                multi_layer=True)
             loss = loss_seg + source_intra
 
@@ -97,7 +111,7 @@ def main():
             if i_iter % 50 == 0:
                 logger.info('exp = {}'.format(cfg.SNAPSHOT_DIR))
                 text = 'iter = %d, total = %.3f, seg = %.3f, ' \
-                       'sour_intra = %.3f, lr = %.3f' % (
+                       'source_intra = %.3f, lr = %.3f' % (
                            i_iter, loss, loss_seg, source_intra, lr)
                 logger.info(text)
 
@@ -115,15 +129,20 @@ def main():
         else:
             # Second Stage
             # Generate pseudo label
-            if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or targetloader is None:
+            if i_iter % cfg.GENERATE_PSEDO_EVERY == 0 or i_iter == cfg.FIRST_STAGE_STEP:
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 # save pseudo label for target domain
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path)
+                if i_iter != cfg.FIRST_STAGE_STEP:
+                    shutil.move(f'{save_pseudo_label_path}_color',
+                                f'{save_pseudo_label_path}_color_{i_iter - cfg.GENERATE_PSEDO_EVERY}')
+                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
+                                    size=eval(cfg.DATASETS).SIZE, save_prob=False, slide=True,
+                                    ignore_label=ignore_label)
                 # save finish
                 target_config = cfg.TARGET_DATA_CONFIG
                 target_config['mask_dir'] = [save_pseudo_label_path]
                 logger.info(target_config)
-                targetloader = LoveDALoader(target_config)
+                targetloader = DALoader(target_config, cfg.DATASETS)
                 targetloader_iter = Iterator(targetloader)
                 logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
             if i_iter == (cfg.FIRST_STAGE_STEP + 1):
@@ -135,7 +154,7 @@ def main():
             #     targetloader_iter = Iterator(targetloader)
             torch.cuda.synchronize()
             # Second Stage
-            if i_iter < cfg.NUM_STEPS_STOP and targetloader is not None:
+            if i_iter < cfg.NUM_STEPS_STOP:
                 model.train()
                 lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
@@ -155,19 +174,20 @@ def main():
                 pred_t1, pred_t2, feat_t = model(images_t)
 
                 # loss
-                loss_seg = loss_calc([pred_s1, pred_s2], lab_s, multi=True)
-                loss_pseudo = loss_calc([pred_t1, pred_t2], lab_t, multi=True)
+                loss_seg = loss_calc([pred_s1, pred_s2], lab_s, loss_fn, multi=True)
+                loss_pseudo = loss_calc([pred_t1, pred_t2], lab_t, loss_fn, multi=True)
 
-                source_intra = ICR([pred_s1, pred_s2, feat_s],
+                source_intra = ICR([pred_s1, pred_s2, feat_s], num_classes=class_num,
                                    multi_layer=True)
                 # target_intra = intra_domain_regularize([pred_t1, feat_t1, pred_t2, feat_t2],
                 #                                        multi_layer=True)
 
                 domain_cross = CCR([pred_s1, pred_s2, feat_s],
                                    [pred_t1, pred_t2, feat_t],
+                                   num_classes=class_num,
                                    multi_layer=True)
 
-                loss = loss_seg + loss_pseudo + (source_intra + domain_cross)
+                loss = loss_seg + loss_pseudo #+ (source_intra + domain_cross)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -191,56 +211,57 @@ def main():
                     model.train()
 
 
-def gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, slide=True):
-    model.eval()
-
-    save_pseudo_color_path = save_pseudo_label_path + '_color'
-    if not os.path.exists(save_pseudo_color_path):
-        os.makedirs(save_pseudo_color_path)
-    viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
-
-    with torch.no_grad():
-        for ret, ret_gt in tqdm(pseudo_loader):
-            ret = ret.to(torch.device('cuda'))
-
-            # cls = model(ret)
-            cls = pre_slide(model, ret, tta=True) if slide else model(ret)
-            # pseudo selection, from -1~6
-            if cfg.PSEUDO_SELECT:
-                cls = pseudo_selection(cls)
-            else:
-                cls = cls.argmax(dim=1).cpu().numpy()
-
-            cv2.imwrite(save_pseudo_label_path + '/' + ret_gt['fname'][0],
-                        (cls + 1).reshape(1024, 1024).astype(np.uint8))
-
-            if cfg.SNAPSHOT_DIR is not None:
-                for fname, pred in zip(ret_gt['fname'], cls):
-                    viz_op(pred, fname.replace('tif', 'png'))
-
-
-def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6):
-    """Convert continuous mask into binary mask"""
-    assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())
-    bs, c, h, w = mask.size()
-    mask = mask.view(bs, c, -1)
-
-    # for each class extract the max confidence
-    mask_max, _ = mask.max(-1, keepdim=True)
-    mask_max *= cutoff_top
-
-    # if the top score is too low, ignore it
-    lowest = torch.Tensor([cutoff_low]).type_as(mask_max)
-    mask_max = mask_max.max(lowest)
-
-    pseudo_gt = (mask > mask_max).type_as(mask)
-    # remove ambiguous pixels, ambiguous = 1 means ignore
-    ambiguous = (pseudo_gt.sum(1, keepdim=True) != 1).type_as(mask)
-
-    pseudo_gt = pseudo_gt.argmax(dim=1, keepdim=True)
-    pseudo_gt[ambiguous == 1] = -1
-
-    return pseudo_gt.view(bs, h, w).cpu().numpy()
+# def gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path, palette, slide=True):
+#     model.eval()
+#
+#     save_pseudo_color_path = save_pseudo_label_path + '_color'
+#     if not os.path.exists(save_pseudo_color_path):
+#         os.makedirs(save_pseudo_color_path)
+#     viz_op = VisualizeSegmm(save_pseudo_color_path, palette)
+#     num_classes = len(eval(cfg.DATASETS).LABEL_MAP)
+#     img_size = eval(cfg.DATASETS).SIZE
+#     with torch.no_grad():
+#         for ret, ret_gt in tqdm(pseudo_loader):
+#             ret = ret.to(torch.device('cuda'))
+#
+#             # cls = model(ret)
+#             cls = pre_slide(model, ret, num_classes=num_classes, tta=True) if slide else model(ret)
+#             # pseudo selection, from -1~6
+#             if cfg.PSEUDO_SELECT:
+#                 cls = pseudo_selection(cls)
+#             else:
+#                 cls = cls.argmax(dim=1).cpu().numpy()
+#
+#             cv2.imwrite(save_pseudo_label_path + '/' + ret_gt['fname'][0],
+#                         (cls + 1).reshape(*img_size).astype(np.uint8))
+#
+#             if cfg.SNAPSHOT_DIR is not None:
+#                 for fname, pred in zip(ret_gt['fname'], cls):
+#                     viz_op(pred, fname.replace('tif', 'png'))
+#
+#
+# def pseudo_selection(mask, cutoff_top=0.8, cutoff_low=0.6):
+#     """Convert continuous mask into binary mask"""
+#     assert mask.max() <= 1 and mask.min() >= 0, print(mask.max(), mask.min())
+#     bs, c, h, w = mask.size()
+#     mask = mask.view(bs, c, -1)
+#
+#     # for each class extract the max confidence
+#     mask_max, _ = mask.max(-1, keepdim=True)
+#     mask_max *= cutoff_top
+#
+#     # if the top score is too low, ignore it
+#     lowest = torch.Tensor([cutoff_low]).type_as(mask_max)
+#     mask_max = mask_max.max(lowest)
+#
+#     pseudo_gt = (mask > mask_max).type_as(mask)
+#     # remove ambiguous pixels, ambiguous = 1 means ignore
+#     ambiguous = (pseudo_gt.sum(1, keepdim=True) != 1).type_as(mask)
+#
+#     pseudo_gt = pseudo_gt.argmax(dim=1, keepdim=True)
+#     pseudo_gt[ambiguous == 1] = -1
+#
+#     return pseudo_gt.view(bs, h, w).cpu().numpy()
 
 
 if __name__ == '__main__':

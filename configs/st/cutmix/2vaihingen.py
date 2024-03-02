@@ -1,17 +1,16 @@
-from configs.ToRURAL import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, TARGET_SET, TEST_DATA_CONFIG, \
-    PSEUDO_DATA_CONFIG, target_dir, DATASETS
+from configs.ToVaihingen import SOURCE_DATA_CONFIG, EVAL_DATA_CONFIG, \
+    PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir, DATASETS
 import uemda.aug.augmentation as mag
 
 
-MODEL = 'ResNet'
+MODEL = 'ResNet101'
 
 IGNORE_LABEL = -1
 MOMENTUM = 0.9
-NUM_CLASSES = 7
 
-SNAPSHOT_DIR = './log/proca/2rural'
+SNAPSHOT_DIR = './log/cutmix/2vaihingen'
 
-#Hyper Paramters
+# Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
 STAGE1_STEPS = 4000
@@ -22,9 +21,6 @@ PREHEAT_STEPS = None    # for warm-up
 POWER = 0.9                 # lr poly power
 EVAL_EVERY = 500
 GENE_EVERY = 1000
-MULTI_LAYER = True
-IGNORE_BG = True
-PSEUDO_SELECT = True
 CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
 
@@ -37,14 +33,15 @@ TARGET_DATA_CONFIG = dict(
         mag.RandomVerticalFlip(0.5),
         mag.RandomRotate90(0.5),
         mag.Normalize(
-            mean=(73.53223948, 80.01710095, 74.59297778),
-            std=(41.5113661, 35.66528876, 33.75830885)
+            mean=(120.8217, 81.8250, 81.2344),
+            std=(54.7461, 39.3116, 37.9288),
+            clamp=True,
         ),
     ]),
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=4,
+    num_workers=8,
     pin_memory=True,
     label_type='prob',
     read_sup=True,

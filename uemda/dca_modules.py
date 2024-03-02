@@ -76,11 +76,11 @@ class CategoryAlign_Module(nn.Module):
         return loss
 
 
-def ICR(inputs, multi_layer=False, ignore_bg=True):
+def ICR(inputs, num_classes, multi_layer=False, ignore_bg=True):
     """
         Intra-domain Covariance Regularization
     """
-    m = CategoryAlign_Module(ignore_bg=ignore_bg)
+    m = CategoryAlign_Module(ignore_bg=ignore_bg, num_classes=num_classes)
 
     if multi_layer:
         preds1, preds2, feats = inputs
@@ -105,11 +105,11 @@ def ICR(inputs, multi_layer=False, ignore_bg=True):
     return loss
 
 
-def CCR(source, target, multi_layer=False, ignore_bg=True):
+def CCR(source, target, num_classes, multi_layer=False, ignore_bg=True):
     """
         Cross-domain Covariance Regularization
     """
-    m = CategoryAlign_Module(ignore_bg=ignore_bg)
+    m = CategoryAlign_Module(ignore_bg=ignore_bg, num_classes=num_classes)
 
     if multi_layer:
         S_preds1, S_preds2, S_feats = source

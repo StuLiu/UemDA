@@ -407,6 +407,15 @@ def count_model_parameters(module, _default_logger=None):
     return cnt
 
 
+def index2onehot(labels, class_num=7, ignore_label=-1):
+    if labels.dim() == 4:
+        labels = labels.squeeze(dim=1)
+    labels[labels == ignore_label] = class_num
+    labels_onehot = tnf.one_hot(labels, num_classes=class_num + 1)[:, :, :, :-1]  # (b*h*w, c)
+    labels_onehot = labels_onehot.permute(0, 3, 1, 2)
+    return labels_onehot    # (b, c, h, w)
+
+
 class BestLog:
     def __init__(self, high=True):
         self.value = -999999 if high else 999999

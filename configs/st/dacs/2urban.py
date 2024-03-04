@@ -10,19 +10,19 @@ IGNORE_LABEL = -1
 MOMENTUM = 0.9
 NUM_CLASSES = 7
 
-SNAPSHOT_DIR = './log/GAST/2urban'
+SNAPSHOT_DIR = './log/dacs/2urban'
 
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
-NUM_STEPS = 15000  # for learning rate poly
-NUM_STEPS_STOP = 10000  # Use damping instead of early stopping
-FIRST_STAGE_STEP = 4000  # for first stage
-PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
-POWER = 0.9  # lr poly power
-EVAL_FROM = 0#int(NUM_STEPS_STOP * 0.6) - 1
-EVAL_EVERY = 1000
-GENERATE_PSEDO_EVERY = 1000
+STAGE1_STEPS = 4000
+STAGE2_STEPS = 6000
+STAGE3_STEPS = 6000
+NUM_STEPS = None        # for learning rate poly
+PREHEAT_STEPS = None    # for warm-up
+POWER = 0.9                 # lr poly power
+EVAL_EVERY = 500
+GENE_EVERY = 1000
 MULTI_LAYER = True
 IGNORE_BG = True
 PSEUDO_SELECT = True

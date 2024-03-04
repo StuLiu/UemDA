@@ -5,50 +5,51 @@
 @Author  : WangLiu
 @E-mail  : liuwa@hnu.edu.cn
 """
-import shutil
-
-import torch.multiprocessing
-
+import os
+import time
+import torch
+import argparse
 import os.path as osp
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
+
 from uemda.utils.eval import evaluate
+
+from tqdm import tqdm
+from torch.nn.utils import clip_grad
+from ever.core.iterator import Iterator
+from uemda.datasets import *
+from uemda.gast.alignment import Aligner
+from uemda.gast.balance import *
 from uemda.utils.tools import *
 from uemda.models.Encoder import Deeplabv2
 from uemda.datasets.daLoader import DALoader
-from uemda.datasets import *
+from uemda.loss import PrototypeContrastiveLoss
+from uemda.gast.pseudo_generation import pseudo_selection
 
-from ever.core.iterator import Iterator
-from tqdm import tqdm
-from torch.nn.utils import clip_grad
-from uemda.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
-from uemda.gast.balance import *
-from uemda.utils.ema import ExponentialMovingAverage
-from uemda.utils.cutmix import cutmix
-from uemda.utils.classmix import classmix
+# CUDA_VISIBLE_DEVICES=6 python tools/train_align.py --config-path st.gast.2potsdam \
+# --ckpt-model log/proca/2potsdam/src/Potsdam_best.pth
+# align instance to flow-prototypes of two domain
+parser = argparse.ArgumentParser(description='Train align by pcl with uem.')
 
+parser.add_argument('--config-path', type=str, default='st.uemda.2vaihingen', help='config path')
 
-parser = argparse.ArgumentParser(description='Run ssl with mixing technique')
-parser.add_argument('--config-path', type=str, default='st.proca.2vaihingen', help='config path')
-# ckpts
 parser.add_argument('--ckpt-model', type=str,
-                    default='log/proca/2vaihingen/align/Vaihingen_best.pth', help='model ckpt from stage1')
-
-parser.add_argument('--gen', type=str2bool, default=1, help='if generate pseudo-labels')
-
+                    default='log/uemda/2vaihingen/src/Vaihingen_best.pth', help='model ckpt from stage1')
+parser.add_argument('--ckpt-proto', type=str,
+                    default='log/uemda/2vaihingen/src/prototypes_best.pth', help='proto ckpt from stage1')
+parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
 # source loss
 parser.add_argument('--ls', type=str, default="CrossEntropy",
                     choices=['CrossEntropy', 'OhemCrossEntropy'], help='source loss function')
 parser.add_argument('--bcs', type=str2bool, default=0, help='whether balance class for source')
 parser.add_argument('--class-temp', type=float, default=2.0, help='smooth factor')
-# UVEM
-
-parser.add_argument('--mix', type=str, default='cutmix', choices=['cutmix', 'classmix'],
-                    help='whether balance class')
+# alignment
+parser.add_argument('--pcl-temp', type=float, default=8.0, help='loss factor')
 args = parser.parse_args()
 
 # get config from config.py
-cfg = import_config(args.config_path, create=True, copy=True, postfix='/ssl')
+cfg = import_config(args.config_path, create=True, copy=True, postfix='/align')
 
 
 def main():
@@ -64,7 +65,7 @@ def main():
     ignore_label = eval(cfg.DATASETS).IGNORE_LABEL
     class_num = len(eval(cfg.DATASETS).LABEL_MAP)
     model_name = str(cfg.MODEL).lower()
-    stop_steps = cfg.STAGE3_STEPS
+    stop_steps = cfg.STAGE2_STEPS
     cfg.NUM_STEPS = stop_steps * 1.5            # for learning rate poly
     cfg.PREHEAT_STEPS = int(stop_steps / 20)    # for warm-up
 
@@ -95,34 +96,38 @@ def main():
     model.load_state_dict(ckpt_model)
     model = model.cuda()
 
+    aligner = Aligner(logger=logger,
+                      feat_channels=2048,
+                      class_num=class_num,
+                      ignore_label=ignore_label,
+                      decay=0.996,
+                      resume=args.ckpt_proto)
+
     class_balancer_s = ClassBalance(class_num=class_num,
                                     ignore_label=ignore_label,
                                     decay=0.99,
                                     temperature=args.class_temp)
 
-    loss_fn = eval(args.ls)(ignore_label=ignore_label, class_balancer=class_balancer_s if args.bcs else None)
+    loss_fn_s = eval(args.ls)(ignore_label=ignore_label, class_balancer=class_balancer_s if args.bcs else None)
+    loss_fn_pcl = PrototypeContrastiveLoss(temperature=args.pcl_temp, ignore_label=ignore_label)
 
-    # source loader
+    # source and target loader
     sourceloader = DALoader(cfg.SOURCE_DATA_CONFIG, cfg.DATASETS)
     sourceloader_iter = Iterator(sourceloader)
-    # pseudo loader (target)
-    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
-    # target loader
     targetloader = DALoader(cfg.TARGET_DATA_CONFIG, cfg.DATASETS)
     targetloader_iter = Iterator(targetloader)
-    logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}, pseudo={len(pseudo_loader)}')
-    # print(len(targetloader))
+    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
+
     epochs = stop_steps / len(sourceloader)
+    logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}')
     logger.info('epochs ~= %.3f' % epochs)
 
     mIoU_max, iter_max = 0, 0
+
     optimizer = optim.SGD(model.parameters(),
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
     for i_iter in tqdm(range(stop_steps)):
 
-        lr = adjust_learning_rate(optimizer, i_iter, cfg)
-
-        # Generate pseudo label
         if i_iter % cfg.GENE_EVERY == 0:
             if args.gen:
                 if i_iter != 0:
@@ -141,45 +146,46 @@ def main():
             logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
         torch.cuda.synchronize()
 
-        model.train()
-        # source output
-        batch_s = sourceloader_iter.next()
-        images_s, label_s = batch_s[0]
+        lr = adjust_learning_rate(optimizer, i_iter, cfg)
+
+        # source infer
+        batch = sourceloader_iter.next()
+        images_s, label_s = batch[0]
         images_s, label_s = images_s.cuda(), label_s['cls'].cuda()
-        # target output
-        batch_t = targetloader_iter.next()
-        images_t, label_t = batch_t[0]
-        images_t, label_t_soft, label_t_sup = images_t.cuda(), label_t['cls'].cuda(), label_t['sup'].cuda()
-        label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
-                                        return_type='tensor', ignore_label=ignore_label)
-
-        # cutmix
-        if args.mix == 'cutmix':
-            images_s, label_s, images_t, label_t = cutmix(images_s, label_s, images_t, label_t_hard)
-        # dacs/classmix
-        else:
-            images_s, label_s, images_t, label_t = classmix(images_s, label_s, images_t, label_t_hard)
-
-        # model forward
         pred_s1, pred_s2, feat_s = model(images_s)
+
+        # ema-updating prototypes
+        label_s_down = aligner.update_prototype(feat_s, label_s)
+
+        # target infer
+        batch = targetloader_iter.next()
+        images_t, labels_t = batch[0]
+        images_t, label_t_soft = images_t.cuda(), labels_t['cls'].cuda()
         pred_t1, pred_t2, feat_t = model(images_t)
 
-        # loss
-        loss = (loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn, multi=True) +
-                loss_calc([pred_t1, pred_t2], label_t, loss_fn=loss_fn, multi=True))
+        label_t_val, label_t = torch.max(label_t_soft, dim=1)
+        label_t[label_t_val < 0.9] = ignore_label
+
+        # compute loss
+        loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
+        loss_domain = aligner.align_domain(feat_s, feat_t) if args.align_domain else 0
+        loss_align = (loss_fn_pcl(aligner.prototypes, feat_s, label_s_down) +
+                      loss_fn_pcl(aligner.prototypes, feat_t, label_t)) * 0.5
+        loss = loss_seg + loss_domain + loss_align
 
         optimizer.zero_grad()
         loss.backward()
         clip_grad.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                   max_norm=32, norm_type=2)
         optimizer.step()
-        log_loss = f'iter={i_iter + 1}, total={loss:.3f}, lr = {lr:.3e}'
+        log_loss = f'iter={i_iter + 1}, total={loss:.3f}, loss_seg={loss_seg:.3f}, ' \
+                   f'loss_align={loss_align:.3e}, loss_domain={loss_domain:.3e} lr={lr:.3e}'
 
         # logging training process, evaluating and saving
         if i_iter == 0 or (i_iter + 1) % 50 == 0:
             logger.info(log_loss)
             if args.bcs:
-                logger.info(str(loss_fn.class_balancer))
+                logger.info(str(loss_fn_s.class_balancer))
 
         if i_iter == 0 or (i_iter + 1) % cfg.EVAL_EVERY == 0 or (i_iter + 1) >= stop_steps:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + '_curr.pth')
@@ -197,8 +203,6 @@ def main():
             model.train()
 
     logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
-    shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
-    logger.info('removing pseudo labels')
 
 
 if __name__ == '__main__':

@@ -60,7 +60,8 @@ class Aligner:
             self.prototypes = torch.zeros([class_num, feat_channels], requires_grad=False).cuda()
 
         # downscale for gt label with full size
-        self.downscale_gt = DownscaleLabel(scale_factor=16, n_classes=7, ignore_label=ignore_label, min_ratio=0.75)
+        self.downscale_gt = DownscaleLabel(scale_factor=16, n_classes=class_num, ignore_label=ignore_label,
+                                           min_ratio=0.75)
 
         # criterion for domain alignment
         self.coral = CoralLoss()

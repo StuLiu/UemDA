@@ -33,16 +33,16 @@ from uemda.utils.ema import ExponentialMovingAverage
 # --config-path st.proca.2rural --refine-label 1 --refine-mode all --refine-temp 2 --balance-class 1 --balance-temp 1000
 
 parser = argparse.ArgumentParser(description='Run proca methods. ssl')
-parser.add_argument('--config-path', type=str, default='st.proca.2vaihingen', help='config path')
+parser.add_argument('--config-path', type=str, default='st.uvem.2vaihingen', help='config path')
 # ckpts
 parser.add_argument('--ckpt-model', type=str,
-                    default='log/proca/2vaihingen/align/Vaihingen_best.pth', help='model ckpt from stage1')
+                    default='log/uvem/2vaihingen/align/Vaihingen_best.pth', help='model ckpt from stage1')
 parser.add_argument('--ckpt-proto', type=str,
-                    default='log/proca/2vaihingen/align/prototypes_best.pth', help='proto ckpt from stage1')
+                    default='log/uvem/2vaihingen/align/prototypes_best.pth', help='proto ckpt from stage1')
 
 parser.add_argument('--gen', type=str2bool, default=1, help='if generate pseudo-labels')
 # MPC
-parser.add_argument('--refine-label', type=str2bool, default=0, help='whether refine the pseudo label')
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
 parser.add_argument('--refine-mode', type=str, default='all', choices=['s', 'p', 'n', 'l', 'all'],
                     help='refine by prototype, label, or both')
 parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
@@ -51,14 +51,14 @@ parser.add_argument('--ls', type=str, default="CrossEntropy",
                     choices=['CrossEntropy', 'OhemCrossEntropy'], help='source loss function')
 parser.add_argument('--bcs', type=str2bool, default=0, help='whether balance class for source')
 # target loss
-parser.add_argument('--lt', type=str, default='none',
+parser.add_argument('--lt', type=str, default='uvem',
                     choices=['ours', 'uvem', 'ohem', 'focal', 'ghm', 'ups', 'none'], help='target loss function')
 parser.add_argument('--bct', type=str2bool, default=0, help='whether balance class for target')
 parser.add_argument('--class-temp', type=float, default=2.0, help='smooth factor')
 # UVEM
 parser.add_argument('--uvem-m', type=float, default=0.2, help='whether balance class')
 parser.add_argument('--uvem-t', type=float, default=0.7, help='whether balance class')
-parser.add_argument('--uvem-g', type=float, default=1, help='whether balance class')
+parser.add_argument('--uvem-g', type=float, default=4, help='whether balance class')
 
 args = parser.parse_args()
 

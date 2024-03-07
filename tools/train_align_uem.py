@@ -25,7 +25,7 @@ from uemda.utils.tools import *
 from uemda.models.Encoder import Deeplabv2
 from uemda.datasets.daLoader import DALoader
 from uemda.loss import PrototypeContrastiveLoss
-from uemda.gast.pseudo_generation import pseudo_selection
+from uemda.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
 
 # CUDA_VISIBLE_DEVICES=6 python tools/train_align.py --config-path st.gast.2potsdam \
 # --ckpt-model log/proca/2potsdam/src/Potsdam_best.pth
@@ -38,7 +38,14 @@ parser.add_argument('--ckpt-model', type=str,
                     default='log/uemda/2vaihingen/src/Vaihingen_best.pth', help='model ckpt from stage1')
 parser.add_argument('--ckpt-proto', type=str,
                     default='log/uemda/2vaihingen/src/prototypes_best.pth', help='proto ckpt from stage1')
+
+parser.add_argument('--gen', type=str2bool, default=1, help='whether generate pseudo-labels')
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
+# MPC
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
+parser.add_argument('--refine-mode', type=str, default='all', choices=['s', 'p', 'n', 'l', 'all'],
+                    help='refine by prototype, label, or both')
+parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 # source loss
 parser.add_argument('--ls', type=str, default="CrossEntropy",
                     choices=['CrossEntropy', 'OhemCrossEntropy'], help='source loss function')
@@ -131,6 +138,7 @@ def main():
         if i_iter % cfg.GENE_EVERY == 0:
             if args.gen:
                 if i_iter != 0:
+                    shutil.rmtree(f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
                     shutil.move(f'{save_pseudo_label_path}_color',
                                 f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
@@ -144,8 +152,10 @@ def main():
             targetloader = DALoader(target_config, cfg.DATASETS)
             targetloader_iter = Iterator(targetloader)
             logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
+
         torch.cuda.synchronize()
 
+        model.train()
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
         # source infer
@@ -160,8 +170,13 @@ def main():
         # target infer
         batch = targetloader_iter.next()
         images_t, labels_t = batch[0]
-        images_t, label_t_soft = images_t.cuda(), labels_t['cls'].cuda()
+        images_t, label_t_soft, label_t_sup = images_t.cuda(), labels_t['cls'].cuda(), labels_t['sup'].cuda()
         pred_t1, pred_t2, feat_t = model(images_t)
+
+        label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
+                                            refine=args.refine_label, mode=args.refine_mode, temp=args.refine_temp)
+        # label_t_soft = aligner.downscale_gt()
+        label_t_soft = tnf.interpolate(label_t_soft, size=feat_t.shape[-2:], mode='bilinear', align_corners=True)
 
         label_t_val, label_t = torch.max(label_t_soft, dim=1)
         label_t[label_t_val < 0.9] = ignore_label
@@ -203,7 +218,8 @@ def main():
             model.train()
 
     logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
-
+    shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
+    logger.info('removing pseudo labels')
 
 if __name__ == '__main__':
     # seed_torch(int(time.time()) % 10000019)

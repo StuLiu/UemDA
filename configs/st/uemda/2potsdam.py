@@ -13,14 +13,14 @@ SNAPSHOT_DIR = './log/uemda/2potsdam'
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
 LEARNING_RATE = 1e-2
-NUM_STEPS = 7500  # for learning rate poly
-NUM_STEPS_STOP = 5000  # Use damping instead of early stopping
-FIRST_STAGE_STEP = 2000  # for first stage
-PREHEAT_STEPS = int(NUM_STEPS / 20)  # for warm-up
-POWER = 0.9  # lr poly power
-EVAL_FROM = 0#int(NUM_STEPS_STOP * 0.6) - 1
+STAGE1_STEPS = 4000
+STAGE2_STEPS = 6000
+STAGE3_STEPS = 6000
+NUM_STEPS = None        # for learning rate poly
+PREHEAT_STEPS = None    # for warm-up
+POWER = 0.9                 # lr poly power
 EVAL_EVERY = 500
-GENERATE_PSEDO_EVERY = 500
+GENE_EVERY = 1000
 CUTOFF_TOP = 0.8
 CUTOFF_LOW = 0.6
 

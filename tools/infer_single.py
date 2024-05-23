@@ -1,3 +1,4 @@
+import shutil
 import warnings
 import os
 
@@ -19,15 +20,21 @@ if __name__ == '__main__':
     parser.add_argument('image_path', type=str, help='ckpt path')
     parser.add_argument('--save-dir', type=str, default='./demo', help='save dir')
     parser.add_argument('--ins-norm', type=str2bool, default=True, help='save dir path')
-    parser.add_argument('--resnet-type', type=str, default='resnet50', help='save dir path')
     parser.add_argument('--slide', type=str2bool, default=True, help='save dir path')
+    parser.add_argument('--tta', type=str2bool, default=False, help='save dir path')
+    parser.add_argument('--gt', type=str2bool, default=True, help='save dir path')
     args = parser.parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
     cfg = import_config(args.config_path, copy=False, create=False)
     class_num = len(eval(cfg.DATASETS).LABEL_MAP)
+
+    model_name = str(cfg.MODEL).lower()
+    if model_name == 'resnet':
+        model_name = 'resnet50'
+
     model = Deeplabv2(dict(
         backbone=dict(
-            resnet_type=args.resnet_type,
+            resnet_type=model_name,
             output_stride=16,
             pretrained=False,
         ),
@@ -50,8 +57,15 @@ if __name__ == '__main__':
     with torch.no_grad():
         img = imread(args.image_path)
         img = trans(image=img)['image'].unsqueeze(dim=0).cuda()
-        cls = pre_slide(model, img, num_classes=class_num, tta=True) if args.slide else model(img)
+        cls = pre_slide(model, img, num_classes=class_num, tta=args.tta) if args.slide else model(img)
         cls = cls.argmax(dim=1).cpu().numpy().squeeze()
         imsave(os.path.join(args.save_dir, 'prediction.png'), cls.astype(np.uint8))
         viz_op(cls, 'prediction_color.png')
+        if args.gt:
+            gt_path = str(args.image_path).replace('img_dir', 'ann_dir')
+            if os.path.exists(gt_path):
+                print(gt_path)
+                viz_op(imread(gt_path), f'gt.png')
+
     torch.cuda.empty_cache()
+

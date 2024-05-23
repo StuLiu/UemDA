@@ -138,7 +138,7 @@ def main():
         if i_iter % cfg.GENE_EVERY == 0:
             if args.gen:
                 if i_iter != 0:
-                    shutil.rmtree(f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
+                    # shutil.rmtree(f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
                     shutil.move(f'{save_pseudo_label_path}_color',
                                 f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
@@ -175,11 +175,13 @@ def main():
 
         label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
                                             refine=args.refine_label, mode=args.refine_mode, temp=args.refine_temp)
-        # label_t_soft = aligner.downscale_gt()
-        label_t_soft = tnf.interpolate(label_t_soft, size=feat_t.shape[-2:], mode='bilinear', align_corners=True)
-
-        label_t_val, label_t = torch.max(label_t_soft, dim=1)
-        label_t[label_t_val < 0.9] = ignore_label
+        label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
+                                        return_type='tensor', ignore_label=ignore_label)
+        label_t = aligner.downscale_gt(label_t_hard)
+        # label_t_soft = tnf.interpolate(label_t_soft, size=feat_t.shape[-2:], mode='bilinear', align_corners=True)
+        #
+        # label_t_val, label_t = torch.max(label_t_soft, dim=1)
+        # label_t[label_t_val < 0.9] = ignore_label
 
         # compute loss
         loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)

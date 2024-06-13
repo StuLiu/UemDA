@@ -51,24 +51,33 @@ class BaseData(Dataset):
         rgb_filepath_list += glob.glob(os.path.join(image_dir, '*.png'))
 
         logger.info('Dataset images: %d' % len(rgb_filepath_list))
+        
         rgb_filename_list = [os.path.split(fp)[-1] for fp in rgb_filepath_list]
         cls_filepath_list = []
         sup_filepath_list = []
-        if mask_dir is not None:
-            for fname in rgb_filename_list:
+        for fname in rgb_filename_list:
+            if mask_dir is not None:
                 cls_filepath_list.append(os.path.join(mask_dir, fname))
-                # a = os.path.join(mask_dir + '_sup', f"{fname.split('.')[0]}.tif")
-                sup_filepath_list.append(os.path.join(image_dir.replace('img_dir', 'ann_dir').
-                                                      replace('images_png', 'masks_png') + '_sup_shrink',
-                                                      f"{fname.split('.')[0]}.tif"))
+            # a = os.path.join(mask_dir + '_sup', f"{fname.split('.')[0]}.tif")
+            sup_filepath_list.append(os.path.join(image_dir.replace('img_dir', 'ann_dir').
+                                                  replace('images_png', 'masks_png') + '_sup_shrink',
+                                                  f"{fname.split('.')[0]}.tif"))
         self.rgb_filepath_list += rgb_filepath_list
         self.cls_filepath_list += cls_filepath_list
         self.sup_filepath_list += sup_filepath_list
 
     def __getitem__(self, idx):
+        # read image
         image = imread(self.rgb_filepath_list[idx])
         if self.label_type == 'prob':
             image = torch.from_numpy(image).float().permute(2, 0, 1)
+
+        # read superpixel label
+        mask_sup = None
+        if self.read_sup:
+            mask_sup = imread(self.sup_filepath_list[idx]).astype(np.int64)
+            mask_sup = torch.from_numpy(mask_sup).unsqueeze(dim=0).long()
+
         if len(self.cls_filepath_list) > 0:
             if self.label_type == 'id':
                 # 0~7 --> -1~6, 0 in mask.png represents the black area in the input.png
@@ -79,11 +88,6 @@ class BaseData(Dataset):
             # avoid noise label
             mask[mask >= self.n_classes] = self.ignore_label
 
-            # read superpixel label
-            mask_sup = None
-            if self.read_sup:
-                mask_sup = imread(self.sup_filepath_list[idx]).astype(np.int64)
-                mask_sup = torch.from_numpy(mask_sup).unsqueeze(dim=0).long()
             # data augmentation
             if self.transforms is not None:
                 if self.read_sup:
@@ -94,15 +98,22 @@ class BaseData(Dataset):
                 mask = blob['mask']
                 if self.read_sup:
                     mask_sup = blob['mask_sup']
-                    return image, dict(cls=mask, sup=mask_sup, fname=os.path.basename(self.rgb_filepath_list[idx]))
-                else:
-                    return image, dict(cls=mask, fname=os.path.basename(self.rgb_filepath_list[idx]))
+
+            if self.read_sup:
+                return image, dict(cls=mask, sup=mask_sup, fname=os.path.basename(self.rgb_filepath_list[idx]))
+            else:
+                return image, dict(cls=mask, fname=os.path.basename(self.rgb_filepath_list[idx]))
         else:
             if self.transforms is not None:
-                blob = self.transforms(image=image)
+                blob = self.transforms(image=image, mask=None, mask_sup=mask_sup if self.read_sup else None)
                 image = blob['image']
+                if self.read_sup:
+                    mask_sup = blob['mask_sup']
+            if self.read_sup:
+                return image, dict(sup=mask_sup, fname=os.path.basename(self.rgb_filepath_list[idx]))
+            else:
+                return image, dict(fname=os.path.basename(self.rgb_filepath_list[idx]))
 
-            return image, dict(fname=os.path.basename(self.rgb_filepath_list[idx]))
 
     def __len__(self):
         return len(self.rgb_filepath_list)

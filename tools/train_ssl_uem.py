@@ -173,16 +173,15 @@ def main():
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
         # Generate pseudo label
+        # if i_iter % cfg.GENE_EVERY == 0:
         if i_iter == 0:
             if args.gen:
                 if i_iter != 0:
-                    shutil.rmtree(f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
                     shutil.move(f'{save_pseudo_label_path}_color',
-                                f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
+                                f'{save_pseudo_label_path}_ssl_color_{i_iter - cfg.GENE_EVERY}')
                 logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
                 gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
                                     size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True, ignore_label=ignore_label)
-            # shutil.copytree(save_pseudo_label_path + '_color', f'{save_pseudo_label_path}_color_{i_iter}')
             target_config = cfg.TARGET_DATA_CONFIG
             target_config['mask_dir'] = [save_pseudo_label_path]
             logger.info(target_config)

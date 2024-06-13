@@ -25,20 +25,27 @@ from uemda.utils.tools import *
 from uemda.models.Encoder import Deeplabv2
 from uemda.datasets.daLoader import DALoader
 from uemda.loss import PrototypeContrastiveLoss
-from uemda.gast.pseudo_generation import pseudo_selection
+from uemda.gast.pseudo_generation import gener_target_pseudo, pseudo_selection
 
 # CUDA_VISIBLE_DEVICES=6 python tools/train_align.py --config-path st.gast.2potsdam \
 # --ckpt-model log/proca/2potsdam/src/Potsdam_best.pth
 # align instance to flow-prototypes of two domain
-parser = argparse.ArgumentParser(description='Train align by pcl.')
+parser = argparse.ArgumentParser(description='Train align by pcl with uem.')
 
-parser.add_argument('--config-path', type=str, default='st.proca.2vaihingen', help='config path')
+parser.add_argument('--config-path', type=str, default='st.uemda.2vaihingen', help='config path')
 
 parser.add_argument('--ckpt-model', type=str,
-                    default='log/proca/2vaihingen/src/Vaihingen_best.pth', help='model ckpt from stage1')
+                    default='log/uemda/2vaihingen/src/Vaihingen_best.pth', help='model ckpt from stage1')
 parser.add_argument('--ckpt-proto', type=str,
-                    default='log/proca/2vaihingen/src/prototypes_best.pth', help='proto ckpt from stage1')
+                    default='log/uemda/2vaihingen/src/prototypes_best.pth', help='proto ckpt from stage1')
+
+parser.add_argument('--gen', type=str2bool, default=1, help='whether generate pseudo-labels')
 parser.add_argument('--align-domain', type=str2bool, default=0, help='whether align domain or not')
+# MPC
+parser.add_argument('--refine-label', type=str2bool, default=1, help='whether refine the pseudo label')
+parser.add_argument('--refine-mode', type=str, default='all', choices=['s', 'p', 'n', 'l', 'all'],
+                    help='refine by prototype, label, or both')
+parser.add_argument('--refine-temp', type=float, default=2.0, help='whether refine the pseudo label')
 # source loss
 parser.add_argument('--ls', type=str, default="CrossEntropy",
                     choices=['CrossEntropy', 'OhemCrossEntropy'], help='source loss function')
@@ -54,6 +61,8 @@ cfg = import_config(args.config_path, create=True, copy=True, postfix='/align')
 
 def main():
     time_from = time.time()
+    save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, '..', 'pseudo_label')
+    os.makedirs(save_pseudo_label_path, exist_ok=True)
 
     logger = get_console_file_logger(name=args.config_path.split('.')[1], logdir=cfg.SNAPSHOT_DIR)
     logger.info(os.path.basename(__file__))
@@ -114,6 +123,7 @@ def main():
     sourceloader_iter = Iterator(sourceloader)
     targetloader = DALoader(cfg.TARGET_DATA_CONFIG, cfg.DATASETS)
     targetloader_iter = Iterator(targetloader)
+    pseudo_loader = DALoader(cfg.PSEUDO_DATA_CONFIG, cfg.DATASETS)
 
     epochs = stop_steps / len(sourceloader)
     logger.info(f'batch num: source={len(sourceloader)}, target={len(targetloader)}')
@@ -125,6 +135,9 @@ def main():
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
     for i_iter in tqdm(range(stop_steps)):
 
+        torch.cuda.synchronize()
+
+        model.train()
         lr = adjust_learning_rate(optimizer, i_iter, cfg)
 
         # source infer
@@ -138,13 +151,24 @@ def main():
 
         # target infer
         batch = targetloader_iter.next()
-        images_t, _ = batch[0]
-        images_t = images_t.cuda()
+        images_t, labels_t = batch[0]
+        images_t, label_t_sup = images_t.cuda(), labels_t['sup'].cuda()
         pred_t1, pred_t2, feat_t = model(images_t)
 
-        label_t_soft = (torch.softmax(pred_t1, dim=1) + torch.softmax(pred_t2, dim=1)) * 0.5
-        label_t_val, label_t = torch.max(label_t_soft, dim=1)
-        label_t[label_t_val < 0.9] = ignore_label
+        x1 = tnf.interpolate(pred_t1, images_t.shape[-2:], mode='bilinear', align_corners=True)
+        x2 = tnf.interpolate(pred_t2, images_t.shape[-2:], mode='bilinear', align_corners=True)
+        label_t_soft = ((x1.softmax(dim=1) + x2.softmax(dim=1)) * 0.5).detach()
+        label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
+                                            refine=args.refine_label, mode=args.refine_mode, temp=args.refine_temp)
+
+        label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
+                                        return_type='tensor', ignore_label=ignore_label)
+        # label_t_val, label_t_hard = torch.max(label_t_soft, dim=1)
+        # label_t_hard[label_t_val < 0.9] = ignore_label
+
+        # print('before:', torch.unique(label_t_hard))
+        label_t = aligner.downscale_gt(label_t_hard)
+        # print('after:', torch.unique(label_t))
 
         # compute loss
         loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
@@ -168,6 +192,7 @@ def main():
                 logger.info(str(loss_fn_s.class_balancer))
 
         if i_iter == 0 or (i_iter + 1) % cfg.EVAL_EVERY == 0 or (i_iter + 1) >= stop_steps:
+        # if (i_iter + 1) % cfg.EVAL_EVERY == 0 or (i_iter + 1) >= stop_steps:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + '_curr.pth')
             torch.save(model.state_dict(), ckpt_path)
             _, mIoU_curr = evaluate(model, cfg, True, ckpt_path, logger)
@@ -183,7 +208,8 @@ def main():
             model.train()
 
     logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
-
+    shutil.rmtree(save_pseudo_label_path, ignore_errors=True)
+    logger.info('removing pseudo labels')
 
 if __name__ == '__main__':
     # seed_torch(int(time.time()) % 10000019)

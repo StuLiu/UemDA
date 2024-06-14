@@ -1,8 +1,9 @@
 from albumentations import *
 import ever as er
-from configs.ToPotsdam import EVAL_DATA_CONFIG, \
+from configs.ToVaihingen import EVAL_DATA_CONFIG, \
     PSEUDO_DATA_CONFIG, TEST_DATA_CONFIG, TARGET_SET, target_dir, DATASETS
 import uemda.aug.augmentation as mag
+
 
 source_dir = dict(
     image_dir=[
@@ -23,8 +24,8 @@ SOURCE_DATA_CONFIG = dict(
             VerticalFlip(True),
             RandomRotate90(True)
         ], p=0.75),
-        Normalize(mean=(123.675, 116.28, 103.53),
-                  std=(58.395, 57.12, 57.375),
+        Normalize(mean=(120.8217, 81.8250, 81.2344),
+                  std=(54.7461, 39.3116, 37.9288),
                   max_pixel_value=1, always_apply=True),
         er.preprocess.albu.ToTensor()
     ]),
@@ -34,12 +35,13 @@ SOURCE_DATA_CONFIG = dict(
     num_workers=4,
 )
 
+
 MODEL = 'ResNet101'
 
 IGNORE_LABEL = -1
 MOMENTUM = 0.9
 
-SNAPSHOT_DIR = './log/uemda/pRgb2potsdam'
+SNAPSHOT_DIR = './log/cutmix/pRgb2vaihingen'
 
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005
@@ -64,8 +66,8 @@ TARGET_DATA_CONFIG = dict(
         mag.RandomVerticalFlip(0.5),
         mag.RandomRotate90(0.5),
         mag.Normalize(
-            mean=(123.675, 116.28, 103.53),
-            std=(58.395, 57.12, 57.375),
+            mean=(120.8217, 81.8250, 81.2344),
+            std=(54.7461, 39.3116, 37.9288),
             clamp=True,
         ),
     ]),

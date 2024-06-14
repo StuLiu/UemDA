@@ -56,7 +56,7 @@ SOURCE_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
 )
 
 
@@ -78,7 +78,7 @@ TARGET_DATA_CONFIG = dict(
     CV=dict(k=10, i=-1),
     training=True,
     batch_size=8,
-    num_workers=8,
+    num_workers=4,
 )
 
 PSEUDO_DATA_CONFIG = dict(

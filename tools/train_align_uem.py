@@ -135,24 +135,6 @@ def main():
                           lr=cfg.LEARNING_RATE, momentum=cfg.MOMENTUM, weight_decay=cfg.WEIGHT_DECAY)
     for i_iter in tqdm(range(stop_steps)):
 
-        if i_iter % cfg.GENE_EVERY == 0:
-            if args.gen:
-                if i_iter != 0:
-                    # shutil.rmtree(f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
-                    shutil.move(f'{save_pseudo_label_path}_color',
-                                f'{save_pseudo_label_path}_color_{i_iter - cfg.GENE_EVERY}')
-                logger.info('###### Start generate pseudo dataset in round {}! ######'.format(i_iter))
-                gener_target_pseudo(cfg, model, pseudo_loader, save_pseudo_label_path,
-                                    size=eval(cfg.DATASETS).SIZE, save_prob=True, slide=True, ignore_label=ignore_label)
-
-            # shutil.copytree(save_pseudo_label_path + '_color', f'{save_pseudo_label_path}_color_{i_iter}')
-            target_config = cfg.TARGET_DATA_CONFIG
-            target_config['mask_dir'] = [save_pseudo_label_path]
-            logger.info(target_config)
-            targetloader = DALoader(target_config, cfg.DATASETS)
-            targetloader_iter = Iterator(targetloader)
-            logger.info('###### Start model retraining dataset in round {}! ######'.format(i_iter))
-
         torch.cuda.synchronize()
 
         model.train()
@@ -170,18 +152,23 @@ def main():
         # target infer
         batch = targetloader_iter.next()
         images_t, labels_t = batch[0]
-        images_t, label_t_soft, label_t_sup = images_t.cuda(), labels_t['cls'].cuda(), labels_t['sup'].cuda()
+        images_t, label_t_sup = images_t.cuda(), labels_t['sup'].cuda()
         pred_t1, pred_t2, feat_t = model(images_t)
 
+        x1 = tnf.interpolate(pred_t1, images_t.shape[-2:], mode='bilinear', align_corners=True)
+        x2 = tnf.interpolate(pred_t2, images_t.shape[-2:], mode='bilinear', align_corners=True)
+        label_t_soft = ((x1.softmax(dim=1) + x2.softmax(dim=1)) * 0.5).detach()
         label_t_soft = aligner.label_refine(label_t_sup, feat_t, [pred_t1, pred_t2], label_t_soft,
                                             refine=args.refine_label, mode=args.refine_mode, temp=args.refine_temp)
+
         label_t_hard = pseudo_selection(label_t_soft, cutoff_top=cfg.CUTOFF_TOP, cutoff_low=cfg.CUTOFF_LOW,
                                         return_type='tensor', ignore_label=ignore_label)
+        # label_t_val, label_t_hard = torch.max(label_t_soft, dim=1)
+        # label_t_hard[label_t_val < 0.9] = ignore_label
+
+        # print('before:', torch.unique(label_t_hard))
         label_t = aligner.downscale_gt(label_t_hard)
-        # label_t_soft = tnf.interpolate(label_t_soft, size=feat_t.shape[-2:], mode='bilinear', align_corners=True)
-        #
-        # label_t_val, label_t = torch.max(label_t_soft, dim=1)
-        # label_t[label_t_val < 0.9] = ignore_label
+        # print('after:', torch.unique(label_t))
 
         # compute loss
         loss_seg = loss_calc([pred_s1, pred_s2], label_s, loss_fn=loss_fn_s, multi=True)
@@ -205,6 +192,7 @@ def main():
                 logger.info(str(loss_fn_s.class_balancer))
 
         if i_iter == 0 or (i_iter + 1) % cfg.EVAL_EVERY == 0 or (i_iter + 1) >= stop_steps:
+        # if (i_iter + 1) % cfg.EVAL_EVERY == 0 or (i_iter + 1) >= stop_steps:
             ckpt_path = osp.join(cfg.SNAPSHOT_DIR, cfg.TARGET_SET + '_curr.pth')
             torch.save(model.state_dict(), ckpt_path)
             _, mIoU_curr = evaluate(model, cfg, True, ckpt_path, logger)

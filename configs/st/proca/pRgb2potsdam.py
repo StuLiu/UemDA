@@ -39,7 +39,7 @@ MODEL = 'ResNet101'
 IGNORE_LABEL = -1
 MOMENTUM = 0.9
 
-SNAPSHOT_DIR = './log/uemda/pRgb2potsdam'
+SNAPSHOT_DIR = './log/proca/pRgb2potsdam'
 
 # Hyper Paramters
 WEIGHT_DECAY = 0.0005

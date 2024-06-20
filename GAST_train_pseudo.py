@@ -15,6 +15,7 @@ from uemda.utils.eval import evaluate
 from uemda.utils.tools import *
 from uemda.models.Encoder import Deeplabv2
 from uemda.datasets.daLoader import DALoader
+from uemda.datasets import *
 
 from ever.core.iterator import Iterator
 from tqdm import tqdm
@@ -58,7 +59,8 @@ parser.add_argument('--rm-pseudo', type=str2bool, default=1, help='remove pseudo
 args = parser.parse_args()
 
 # get config from config.py
-cfg = import_config(args.config_path)
+postfix = f'uvem_m{args.uvem_m}_uvem-g{args.uvem_g}'
+cfg = import_config(args.config_path, postfix=postfix)
 assert cfg.FIRST_STAGE_STEP <= cfg.NUM_STEPS_STOP, 'FIRST_STAGE_STEP must no larger than NUM_STEPS_STOP'
 
 

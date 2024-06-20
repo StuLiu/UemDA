@@ -25,7 +25,7 @@ class IsprsDA(BaseData):
         # clutter=5
     )
     COLOR_MAP = OrderedDict(
-        BgClutter=[0, 0, 0],
+        BgClutter=[255, 0, 0],
         imp_surf=[255, 255, 255],
         building=[0, 0, 255],
         low_vege=[0, 255, 255],

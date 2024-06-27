@@ -69,7 +69,7 @@ cfg = import_config(args.config_path, create=True, copy=True, postfix=postfix)
 
 def main():
     time_from = time.time()
-    save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, '..', 'pseudo_label')
+    save_pseudo_label_path = osp.join(cfg.SNAPSHOT_DIR, 'pseudo_label')
     os.makedirs(save_pseudo_label_path, exist_ok=True)
 
     logger = get_console_file_logger(name=args.config_path.split('.')[1], logdir=cfg.SNAPSHOT_DIR)
@@ -253,6 +253,8 @@ def main():
                                 os.path.join(cfg.SNAPSHOT_DIR, f'vis-{cfg.TARGET_SET}_best'))
             logger.info(f'Best model in iter={iter_max}, best_mIoU={mIoU_max}.')
             model.train()
+        if i_iter >= 3000:
+            break
 
     logger.info(f'>>>> Usning {float(time.time() - time_from) / 3600:.3f} hours.')
     shutil.rmtree(save_pseudo_label_path, ignore_errors=True)

@@ -1,6 +1,8 @@
-<h2 align="center">Uncertain Example Mining Network for Domain Adaptive Segmentation of Remote Sensing Images</h2>
+<h2 align="center">[Uncertain Example Mining Network for 
+Domain Adaptive Segmentation of Remote Sensing Images](
+https://ieeexplore.ieee.org/abstract/document/10666777)</h2>
 
-[paper]()
+<!-- [paper](https://ieeexplore.ieee.org/abstract/document/10666777) -->
 <h5 align="center">by <a href="https://scholar.google.com/citations?user=LXlWdyQAAAAJ&hl=zh-CN">Wang Liu</a>, 
 Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 ---------------------
@@ -21,28 +23,22 @@ Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 
 ### Prepare datasets
 
-#### 1. Generate from raw:
-
 - Download the raw datasets from <a href="https://www.isprs.org/education/benchmarks/UrbanSemLab/2d-sem-label-potsdam.aspx">here</a>.
 - Run the preprocess script in ./convert_datasets/ to crop train, val, test sets:\
 `python convert_datasets/convert_potsdam.py`\
 `python convert_datasets/convert_vaihingen.py`
-- Generate local regions by run \
-`python tools/generate_superpixels.py`
-
-#### 2. The prepared data is formatted as follows:
-"\
+- The prepared data is formatted as follows: \
 ./data\
 ----&nbsp;IsprsDA\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;Potsdam\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;ann_dir\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;img_dir\
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;reg_dir\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;Vaihingen\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;ann_dir\
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;img_dir\
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;reg_dir\
-"
+- Generate local regions by run \
+`python tools/generate_superpixels.py`
+
 
 ### Train the UemDA
 ```bash 

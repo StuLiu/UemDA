@@ -6,7 +6,7 @@ https://ieeexplore.ieee.org/abstract/document/10666777)</h2>
 <h5 align="center">by <a href="https://scholar.google.com/citations?user=LXlWdyQAAAAJ&hl=zh-CN">Wang Liu</a>, 
 Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 ---------------------
-<div align=center><img src="asserts/overview1.png" width = 1080 height =428></div>
+<div align=center><img src="asserts/overview1.png" width = 1080 height =352></div>
 <p align="center">Fig. 1 An overview of the proposed UemDA.</p>
 
 

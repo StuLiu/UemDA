@@ -1,55 +1,87 @@
-<h2 align="center">LoveDA: A Remote Sensing Land-Cover Dataset for Domain Adaptive Semantic Segmentation</h2>
+<h2 align="center">Uncertain Example Mining Network for Domain Adaptive Segmentation of Remote Sensing Images</h2>
 
-
-
-<h5 align="right">by <a href="https://junjue-wang.github.io/homepage/">Junjue Wang</a>, <a href="http://zhuozheng.top/">Zhuo Zheng</a>, Ailong Ma, Xiaoyan Lu, and <a href="http://rsidea.whu.edu.cn/">Yanfei Zhong</a></h5>
-
-
-
-This is an initial benchmark for Unsupervised Domain Adaptation.
+[paper]()
+<h5 align="center">by <a href="https://scholar.google.com/citations?user=LXlWdyQAAAAJ&hl=zh-CN">Wang Liu</a>, 
+Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 ---------------------
+<div align=center><img src="asserts/overview1.png" width = 1080 height =428></div>
+<p align="center">Fig. 1 An overview of the proposed UemDA.</p>
 
 
 ## Getting Started
 
-#### Requirements:
-- pytorch >= 1.7.0
-- python >=3.6
-- pandas >= 1.1.5
+### Environment:
+- conda create -n uemda python=3.8
+- source activate uemda
+- pip install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
+- conda install pytorch-scatter -c pyg
 - pip install ever-beta
-### Prepare LoveDA Dataset
+- pip install -r requirement.txt
+- pip install -e .
 
-```bash
-ln -s </path/to/LoveDA> ./LoveDA
-```
+### Prepare datasets
 
+#### 1. Generate from raw:
 
-### Evaluate CBST Model on the predict set
-#### 1. Download the pre-trained [<b>weights</b>](https://drive.google.com/drive/folders/1xFn1d8a4Hv4il52hLCzjEy_TY31RdRtg?usp=sharing)
-#### 2. Move weight file to log directory
-```bash
-mkdir -vp ./log/
-mv ./CBST_2Urban.pth ./log/CBST_2Urban.pth
-```
+- Download the raw datasets from <a href="https://www.isprs.org/education/benchmarks/UrbanSemLab/2d-sem-label-potsdam.aspx">here</a>.
+- Run the preprocess script in ./convert_datasets/ to crop train, val, test sets:\
+`python convert_datasets/convert_potsdam.py`\
+`python convert_datasets/convert_vaihingen.py`
+- Generate local regions by run \
+`python tools/generate_superpixels.py`
 
-#### 3. Evaluate on Urban test set
+#### 2. The prepared data is formatted as follows:
+"\
+./data\
+----&nbsp;IsprsDA\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;Potsdam\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;ann_dir\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;img_dir\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;reg_dir\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;Vaihingen\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;ann_dir\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;img_dir\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;----&nbsp;reg_dir\
+"
+
+### Train the UemDA
 ```bash 
-bash ./scripts/predict_cbst.sh
+bash runs/uemda/run_2potsdam.sh
 ```
-Submit your test results on [LoveDA Unsupervised Domain Adaptation Challenge](https://codalab.lisn.upsaclay.fr/competitions/424) and you will get your Test score.
-
-### Train CBST Model
-From Rural to Urban
 ```bash 
-bash ./scripts/train_cbst.sh
-```
-Eval CBST Model on Urban val set
-```bash
-bash ./scripts/eval_cbst.sh
+bash runs/uemda/run_2vaihingen.sh
 ```
 
 
+### Evaluate the trained UemDA models.\
+Download the pre-trained [<b>weights</b>](https://pan.baidu.com/s/1rWHSgRpSVPlLt5_bykHCOg?pwd=6th5) and logs.
+#### 1. on Vaihingen (IRRG) -> Potsdam (IRRG) task
+Run evaluating: `python tools/eval.py --config-path st.uemda.2potsdam --ckpt-path log/uemda/2potsdam/ssl/Potsdam_best.pth --test 1`
+#### 2. on Potsdam (IRRG) -> Vaihingen (IRRG) task
+Run evaluating: `python tools/eval.py --config-path st.uemda.2vaihingen --ckpt-path log/uemda/2vaihingen/ssl/Vaihingen_best.pth --test 1`
 
+
+
+### Inference single file
+```bash 
+python tools/infer_single.py st.uemda.2potsdam log/uemda/ssl/Potsdam_best.pth [image-path] --save-dir [save-dir-path]
+```
+
+If this repository is helpful for you, please cite it in your work.
+
+```commandline
+@ARTICLE{10666777,
+  author={Liu, Wang and Duan, Puhong and Xie, Zhuojun and Kang, Xudong and Li, Shutao},
+  journal={IEEE Transactions on Geoscience and Remote Sensing}, 
+  title={Uncertain Example Mining Network for Domain Adaptive Segmentation of Remote Sensing Images}, 
+  year={2024},
+  volume={},
+  number={},
+  pages={1-1},
+  keywords={Noise measurement;Training;Image segmentation;Remote sensing;Accuracy;Adaptive systems;Sensors;Domain adaptation;remote sensing image segmentation;self-training;noise label correction},
+  doi={10.1109/TGRS.2024.3443071}
+}
+```
 
 
 

@@ -1,5 +1,5 @@
 <h2 align="center">Uncertain Example Mining Network for Domain Adaptive Segmentation of Remote Sensing Images</h2>
-<center><a href="https://scholar.google.com/citations?user=LXlWdyQAAAAJ&hl=zh-CN">paper</a></center>
+<center><a href="https://ieeexplore.ieee.org/document/10666777">paper</a></center>
 
 <!-- [paper](https://ieeexplore.ieee.org/abstract/document/10666777) -->
 <h5 align="center">by <a href="https://scholar.google.com/citations?user=LXlWdyQAAAAJ&hl=zh-CN">Wang Liu</a>, 
@@ -21,7 +21,7 @@ Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 
 ### Prepare datasets
 
-- Download the raw datasets from <a href="https://www.isprs.org/education/benchmarks/UrbanSemLab/2d-sem-label-potsdam.aspx">here</a>.
+- Download the raw datasets <a href="https://www.isprs.org/education/benchmarks/UrbanSemLab/2d-sem-label-potsdam.aspx">here</a>.
 - Run the preprocess script in ./convert_datasets/ to crop train, val, test sets:\
 `python convert_datasets/convert_potsdam.py`\
 `python convert_datasets/convert_vaihingen.py`
@@ -37,7 +37,6 @@ Puhong Duan, Zhuojun Xie, Xudong Kang, and Shutao Li</h5>
 - Generate local regions by run \
 `python tools/generate_superpixels.py`
 
-
 ### Train the UemDA
 ```bash 
 bash runs/uemda/run_2potsdam.sh
@@ -46,14 +45,11 @@ bash runs/uemda/run_2potsdam.sh
 bash runs/uemda/run_2vaihingen.sh
 ```
 
-
 ### Evaluate the trained UemDA models.\
-Download the pre-trained [<b>weights</b>](https://pan.baidu.com/s/1rWHSgRpSVPlLt5_bykHCOg?pwd=6th5) and logs.
 #### 1. on Vaihingen (IRRG) -> Potsdam (IRRG) task
 Run evaluating: `python tools/eval.py --config-path st.uemda.2potsdam --ckpt-path log/uemda/2potsdam/ssl/Potsdam_best.pth --test 1`
 #### 2. on Potsdam (IRRG) -> Vaihingen (IRRG) task
 Run evaluating: `python tools/eval.py --config-path st.uemda.2vaihingen --ckpt-path log/uemda/2vaihingen/ssl/Vaihingen_best.pth --test 1`
-
 
 
 ### Inference single file
@@ -61,18 +57,14 @@ Run evaluating: `python tools/eval.py --config-path st.uemda.2vaihingen --ckpt-p
 python tools/infer_single.py st.uemda.2potsdam log/uemda/ssl/Potsdam_best.pth [image-path] --save-dir [save-dir-path]
 ```
 
-If this repository is helpful for you, please cite it in your work.
-
 ```commandline
 @ARTICLE{10666777,
   author={Liu, Wang and Duan, Puhong and Xie, Zhuojun and Kang, Xudong and Li, Shutao},
   journal={IEEE Transactions on Geoscience and Remote Sensing}, 
   title={Uncertain Example Mining Network for Domain Adaptive Segmentation of Remote Sensing Images}, 
   year={2024},
-  volume={},
-  number={},
-  pages={1-1},
-  keywords={Noise measurement;Training;Image segmentation;Remote sensing;Accuracy;Adaptive systems;Sensors;Domain adaptation;remote sensing image segmentation;self-training;noise label correction},
+  volume={62},
+  pages={1-14},
   doi={10.1109/TGRS.2024.3443071}
 }
 ```
